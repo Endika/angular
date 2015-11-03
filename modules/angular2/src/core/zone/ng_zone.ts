@@ -113,13 +113,13 @@ export class NgZone {
   _onErrorHandler: ErrorHandlingFn;
 
   /** @internal */
-  _onTurnStartEvents: EventEmitter;
+  _onTurnStartEvents: EventEmitter<any>;
   /** @internal */
-  _onTurnDoneEvents: EventEmitter;
+  _onTurnDoneEvents: EventEmitter<any>;
   /** @internal */
-  _onEventDoneEvents: EventEmitter;
+  _onEventDoneEvents: EventEmitter<any>;
   /** @internal */
-  _onErrorEvents: EventEmitter;
+  _onErrorEvents: EventEmitter<any>;
 
   // Number of microtasks pending from _innerZone (& descendants)
   /** @internal */
@@ -185,6 +185,7 @@ export class NgZone {
    */
   get onTurnStart(): /* Subject */ any { return this._onTurnStartEvents; }
 
+  /** @internal */
   _notifyOnTurnStart(parentRun): void {
     parentRun.call(this._innerZone, () => { this._onTurnStartEvents.next(null); });
   }
@@ -213,6 +214,7 @@ export class NgZone {
    */
   get onTurnDone() { return this._onTurnDoneEvents; }
 
+  /** @internal */
   _notifyOnTurnDone(parentRun): void {
     parentRun.call(this._innerZone, () => { this._onTurnDoneEvents.next(null); });
   }
@@ -251,6 +253,7 @@ export class NgZone {
    */
   get onEventDone() { return this._onEventDoneEvents; }
 
+  /** @internal */
   _notifyOnEventDone(): void {
     this.runOutsideAngular(() => { this._onEventDoneEvents.next(null); });
   }

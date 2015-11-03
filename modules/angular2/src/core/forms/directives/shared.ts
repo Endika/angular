@@ -4,7 +4,9 @@ import {BaseException, WrappedException} from 'angular2/src/core/facade/exceptio
 
 import {ControlContainer} from './control_container';
 import {NgControl} from './ng_control';
-import {Control} from '../model';
+import {AbstractControlDirective} from './abstract_control_directive';
+import {NgControlGroup} from './ng_control_group';
+import {Control, ControlGroup} from '../model';
 import {Validators} from '../validators';
 import {ControlValueAccessor} from './control_value_accessor';
 import {ElementRef, QueryList} from 'angular2/src/core/linker';
@@ -13,6 +15,7 @@ import {DefaultValueAccessor} from './default_value_accessor';
 import {NumberValueAccessor} from './number_value_accessor';
 import {CheckboxControlValueAccessor} from './checkbox_value_accessor';
 import {SelectControlValueAccessor} from './select_control_value_accessor';
+import {normalizeValidator} from './normalize_validator';
 
 
 export function controlPath(name: string, parent: ControlContainer): string[] {
@@ -26,6 +29,7 @@ export function setUpControl(control: Control, dir: NgControl): void {
   if (isBlank(dir.valueAccessor)) _throwError(dir, "No value accessor for");
 
   control.validator = Validators.compose([control.validator, dir.validator]);
+  control.asyncValidator = Validators.composeAsync([control.asyncValidator, dir.asyncValidator]);
   dir.valueAccessor.writeValue(control.value);
 
   // view -> model
@@ -42,7 +46,13 @@ export function setUpControl(control: Control, dir: NgControl): void {
   dir.valueAccessor.registerOnTouched(() => control.markAsTouched());
 }
 
-function _throwError(dir: NgControl, message: string): void {
+export function setUpControlGroup(control: ControlGroup, dir: NgControlGroup) {
+  if (isBlank(control)) _throwError(dir, "Cannot find control");
+  control.validator = Validators.compose([control.validator, dir.validator]);
+  control.asyncValidator = Validators.composeAsync([control.asyncValidator, dir.asyncValidator]);
+}
+
+function _throwError(dir: AbstractControlDirective, message: string): void {
   var path = dir.path.join(" -> ");
   throw new BaseException(`${message} '${path}'`);
 }
@@ -50,6 +60,15 @@ function _throwError(dir: NgControl, message: string): void {
 export function setProperty(renderer: Renderer, elementRef: ElementRef, propName: string,
                             propValue: any) {
   renderer.setElementProperty(elementRef, propName, propValue);
+}
+
+export function composeValidators(validators: /* Array<Validator|Function> */ any[]): Function {
+  return isPresent(validators) ? Validators.compose(validators.map(normalizeValidator)) : null;
+}
+
+export function composeAsyncValidators(
+    validators: /* Array<Validator|Function> */ any[]): Function {
+  return isPresent(validators) ? Validators.composeAsync(validators.map(normalizeValidator)) : null;
 }
 
 export function isPropertyUpdated(changes: {[key: string]: any}, viewModel: any): boolean {
@@ -61,8 +80,8 @@ export function isPropertyUpdated(changes: {[key: string]: any}, viewModel: any)
 }
 
 // TODO: vsavkin remove it once https://github.com/angular/angular/issues/3011 is implemented
-export function selectValueAccessor(dir: NgControl, valueAccessors: ControlValueAccessor[]):
-    ControlValueAccessor {
+export function selectValueAccessor(dir: NgControl,
+                                    valueAccessors: ControlValueAccessor[]): ControlValueAccessor {
   if (isBlank(valueAccessors)) return null;
 
   var defaultAccessor;

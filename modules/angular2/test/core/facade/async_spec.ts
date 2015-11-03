@@ -12,11 +12,17 @@ import {
   inject
 } from 'angular2/testing_internal';
 
-import {ObservableWrapper, EventEmitter, PromiseWrapper} from 'angular2/src/core/facade/async';
+import {
+  ObservableWrapper,
+  Observable,
+  Subject,
+  EventEmitter,
+  PromiseWrapper
+} from 'angular2/src/core/facade/async';
 
 export function main() {
   describe('EventEmitter', () => {
-    var emitter: EventEmitter;
+    var emitter: EventEmitter<any>;
 
     beforeEach(() => { emitter = new EventEmitter(); });
 
@@ -34,18 +40,18 @@ export function main() {
            expect(error).toEqual("Boom");
            async.done();
          });
-         ObservableWrapper.callThrow(emitter, "Boom");
+         ObservableWrapper.callError(emitter, "Boom");
        }));
 
     it("should work when no throw callback is provided", inject([AsyncTestCompleter], (async) => {
          ObservableWrapper.subscribe(emitter, (_) => {}, (_) => { async.done(); });
-         ObservableWrapper.callThrow(emitter, "Boom");
+         ObservableWrapper.callError(emitter, "Boom");
        }));
 
     it("should call the return callback", inject([AsyncTestCompleter], (async) => {
          ObservableWrapper.subscribe(emitter, (_) => {}, (_) => {}, () => { async.done(); });
 
-         ObservableWrapper.callReturn(emitter);
+         ObservableWrapper.callComplete(emitter);
        }));
 
     it("should subscribe to the wrapper asynchronously", () => {
@@ -90,6 +96,20 @@ export function main() {
     // should call dispose on the subscription if generator returns {done:true}
     // should call dispose on the subscription on throw
     // should call dispose on the subscription on return
+  });
+
+  describe("ObservableWrapper", () => {
+
+    it('should correctly check isObservable for EventEmitter', () => {
+      var e = new EventEmitter(false);
+      expect(ObservableWrapper.isObservable(e)).toBe(true);
+    });
+
+    it('should correctly check isObservable for Subject', () => {
+      var e = new Subject();
+      expect(ObservableWrapper.isObservable(e)).toBe(true);
+    });
+
   });
 
   // See ECMAScript 6 Spec 25.4.4.1

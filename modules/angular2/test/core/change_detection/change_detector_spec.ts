@@ -17,8 +17,10 @@ import {
   CONST_EXPR,
   isPresent,
   isBlank,
+  isNumber,
   isJsObject,
   FunctionWrapper,
+  NumberWrapper,
   normalizeBool
 } from 'angular2/src/core/facade/lang';
 import {BaseException, WrappedException} from 'angular2/src/core/facade/exceptions';
@@ -258,6 +260,19 @@ export function main() {
         expect(_bindSimpleValue('a.sayHi("Jim")', td)).toEqual(['propName=Hi, Jim']);
       });
 
+      it('should support NaN', () => {
+        var person = new Person('misko');
+        person.age = NumberWrapper.NaN;
+        var val = _createChangeDetector('age', person);
+
+        val.changeDetector.detectChanges();
+        expect(val.dispatcher.log).toEqual(['propName=NaN']);
+        val.dispatcher.clear();
+
+        val.changeDetector.detectChanges();
+        expect(val.dispatcher.log).toEqual([]);
+      });
+
       it('should do simple watching', () => {
         var person = new Person('misko');
         var val = _createChangeDetector('name', person);
@@ -416,10 +431,12 @@ export function main() {
         describe('updating directives', () => {
           var directive1;
           var directive2;
+          var directive3;
 
           beforeEach(() => {
             directive1 = new TestDirective();
             directive2 = new TestDirective();
+            directive3 = new TestDirective(null, null, true);
           });
 
           it('should happen directly, without invoking the dispatcher', () => {
@@ -494,6 +511,30 @@ export function main() {
                 cd.checkNoChanges();
 
                 expect(directive1.onInitCalled).toBe(false);
+              });
+
+              it('should not call onInit again if it throws', () => {
+                var cd = _createWithoutHydrate('directiveOnInit').changeDetector;
+
+                cd.hydrate(_DEFAULT_CONTEXT, null, new FakeDirectives([directive3], []), null);
+                var errored = false;
+                // First pass fails, but onInit should be called.
+                try {
+                  cd.detectChanges();
+                } catch (e) {
+                  errored = true;
+                }
+                expect(errored).toBe(true);
+                expect(directive3.onInitCalled).toBe(true);
+                directive3.onInitCalled = false;
+
+                // Second change detection also fails, but this time onInit should not be called.
+                try {
+                  cd.detectChanges();
+                } catch (e) {
+                  throw new BaseException("Second detectChanges() should not have run detection.");
+                }
+                expect(directive3.onInitCalled).toBe(false);
               });
             });
 
@@ -1321,13 +1362,19 @@ class TestDirective {
   afterViewCheckedCalled = false;
   event;
 
-  constructor(public afterContentCheckedSpy = null, public afterViewCheckedSpy = null) {}
+  constructor(public afterContentCheckedSpy = null, public afterViewCheckedSpy = null,
+              public throwOnInit = false) {}
 
   onEvent(event) { this.event = event; }
 
   doCheck() { this.doCheckCalled = true; }
 
-  onInit() { this.onInitCalled = true; }
+  onInit() {
+    this.onInitCalled = true;
+    if (this.throwOnInit) {
+      throw "simulated onInit failure";
+    }
+  }
 
   onChanges(changes) {
     var r = {};
@@ -1420,7 +1467,13 @@ class TestDispatcher implements ChangeDispatcher {
 
   getDebugContext(a, b) { return null; }
 
-  _asString(value) { return (isBlank(value) ? 'null' : value.toString()); }
+  _asString(value) {
+    if (isNumber(value) && NumberWrapper.isNaN(value)) {
+      return 'NaN';
+    }
+
+    return isBlank(value) ? 'null' : value.toString();
+  }
 }
 
 class _ChangeDetectorAndDispatcher {

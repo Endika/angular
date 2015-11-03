@@ -20,19 +20,27 @@ import {
 
 import {DOM} from 'angular2/src/core/dom/dom_adapter';
 import {
+  Input,
   Control,
   ControlGroup,
   ControlValueAccessor,
   FORM_DIRECTIVES,
+  NG_VALIDATORS,
+  NG_ASYNC_VALIDATORS,
+  Provider,
   NgControl,
   NgIf,
   NgFor,
   NgForm,
   Validators,
+  forwardRef,
+  Validator
 } from 'angular2/core';
 import {By} from 'angular2/src/core/debug';
 import {ListWrapper} from 'angular2/src/core/facade/collection';
 import {ObservableWrapper} from 'angular2/src/core/facade/async';
+import {CONST_EXPR} from 'angular2/src/core/facade/lang';
+import {PromiseWrapper} from "angular2/src/core/facade/promise";
 
 export function main() {
   describe("integration tests", () => {
@@ -76,27 +84,29 @@ export function main() {
        }));
 
     it("should emit ng-submit event on submit",
-       inject(
-           [TestComponentBuilder], fakeAsync((tcb: TestComponentBuilder) => {
-             var t =
-                 `<div><form [ng-form-model]="form" (ng-submit)="name='updated'"></form><span>{{name}}</span></div>`;
+       inject([TestComponentBuilder], fakeAsync((tcb: TestComponentBuilder) => {
+                var t = `<div>
+                      <form [ng-form-model]="form" (ng-submit)="name='updated'"></form>
+                      <span>{{name}}</span>
+                    </div>`;
 
-             var rootTC: RootTestComponent;
+                var rootTC: RootTestComponent;
 
-             tcb.overrideTemplate(MyComp, t).createAsync(MyComp).then((root) => { rootTC = root; });
-             tick();
+                tcb.overrideTemplate(MyComp, t).createAsync(MyComp).then(
+                    (root) => { rootTC = root; });
+                tick();
 
-             rootTC.debugElement.componentInstance.form = new ControlGroup({});
-             rootTC.debugElement.componentInstance.name = 'old';
+                rootTC.debugElement.componentInstance.form = new ControlGroup({});
+                rootTC.debugElement.componentInstance.name = 'old';
 
-             tick();
+                tick();
 
-             var form = rootTC.debugElement.query(By.css("form"));
-             dispatchEvent(form.nativeElement, "submit");
+                var form = rootTC.debugElement.query(By.css("form"));
+                dispatchEvent(form.nativeElement, "submit");
 
-             tick();
-             expect(rootTC.debugElement.componentInstance.name).toEqual('updated');
-           })));
+                tick();
+                expect(rootTC.debugElement.componentInstance.name).toEqual('updated');
+              })));
 
     it("should work with single controls",
        inject([TestComponentBuilder, AsyncTestCompleter], (tcb: TestComponentBuilder, async) => {
@@ -393,15 +403,15 @@ export function main() {
     });
 
     describe("validations", () => {
-      it("should use validators defined in html",
+      it("should use sync validators defined in html",
          inject([TestComponentBuilder, AsyncTestCompleter], (tcb: TestComponentBuilder, async) => {
            var form = new ControlGroup(
                {"login": new Control(""), "min": new Control(""), "max": new Control("")});
 
-           var t = `<div [ng-form-model]="form">
-                  <input type="text" ng-control="login" required>
-                  <input type="text" ng-control="min" minlength="3">
-                  <input type="text" ng-control="max" maxlength="3">
+           var t = `<div [ng-form-model]="form" login-is-empty-validator>
+                    <input type="text" ng-control="login" required>
+                    <input type="text" ng-control="min" minlength="3">
+                    <input type="text" ng-control="max" maxlength="3">
                  </div>`;
 
            tcb.overrideTemplate(MyComp, t).createAsync(MyComp).then((rootTC) => {
@@ -423,6 +433,8 @@ export function main() {
              expect(form.hasError("minlength", ["min"])).toEqual(true);
              expect(form.hasError("maxlength", ["max"])).toEqual(true);
 
+             expect(form.hasError("loginIsEmpty")).toEqual(true);
+
              required.nativeElement.value = "1";
              minLength.nativeElement.value = "123";
              maxLength.nativeElement.value = "123";
@@ -436,7 +448,36 @@ export function main() {
            });
          }));
 
-      it("should use validators defined in the model",
+      it("should use async validators defined in the html",
+         inject([TestComponentBuilder], fakeAsync((tcb: TestComponentBuilder) => {
+                  var form = new ControlGroup({"login": new Control("")});
+
+                  var t = `<div [ng-form-model]="form">
+                    <input type="text" ng-control="login" uniq-login-validator="expected">
+                 </div>`;
+
+                  var rootTC;
+                  tcb.overrideTemplate(MyComp, t).createAsync(MyComp).then((root) => rootTC = root);
+                  tick();
+
+                  rootTC.debugElement.componentInstance.form = form;
+                  rootTC.detectChanges();
+
+                  expect(form.pending).toEqual(true);
+
+                  tick(100);
+
+                  expect(form.hasError("uniqLogin", ["login"])).toEqual(true);
+
+                  var input = rootTC.debugElement.query(By.css("input"));
+                  input.nativeElement.value = "expected";
+                  dispatchEvent(input.nativeElement, "change");
+                  tick(100);
+
+                  expect(form.valid).toEqual(true);
+                })));
+
+      it("should use sync validators defined in the model",
          inject([TestComponentBuilder, AsyncTestCompleter], (tcb: TestComponentBuilder, async) => {
            var form = new ControlGroup({"login": new Control("aa", Validators.required)});
 
@@ -458,6 +499,41 @@ export function main() {
              async.done();
            });
          }));
+
+      it("should use async validators defined in the model",
+         inject([TestComponentBuilder], fakeAsync((tcb: TestComponentBuilder) => {
+                  var control =
+                      new Control("", Validators.required, uniqLoginAsyncValidator("expected"));
+                  var form = new ControlGroup({"login": control});
+
+                  var t = `<div [ng-form-model]="form">
+                  <input type="text" ng-control="login">
+                 </div>`;
+
+                  var rootTC;
+                  tcb.overrideTemplate(MyComp, t).createAsync(MyComp).then((root) => rootTC = root);
+                  tick();
+
+                  rootTC.debugElement.componentInstance.form = form;
+                  rootTC.detectChanges();
+
+                  expect(form.hasError("required", ["login"])).toEqual(true);
+
+                  var input = rootTC.debugElement.query(By.css("input"));
+                  input.nativeElement.value = "wrong value";
+                  dispatchEvent(input.nativeElement, "change");
+
+                  expect(form.pending).toEqual(true);
+                  tick();
+
+                  expect(form.hasError("uniqLogin", ["login"])).toEqual(true);
+
+                  input.nativeElement.value = "expected";
+                  dispatchEvent(input.nativeElement, "change");
+                  tick();
+
+                  expect(form.valid).toEqual(true);
+                })));
     });
 
     describe("nested forms", () => {
@@ -898,7 +974,7 @@ class WrappedValue implements ControlValueAccessor {
 
 @Component({selector: "my-input", template: ''})
 class MyInput implements ControlValueAccessor {
-  @Output('change') onChange: EventEmitter = new EventEmitter();
+  @Output('change') onChange: EventEmitter<any> = new EventEmitter();
   value: string;
 
   constructor(cd: NgControl) { cd.valueAccessor = this; }
@@ -914,8 +990,52 @@ class MyInput implements ControlValueAccessor {
   }
 }
 
-@Component({selector: "my-comp"})
-@View({directives: [FORM_DIRECTIVES, WrappedValue, MyInput, NgIf, NgFor]})
+function uniqLoginAsyncValidator(expectedValue: string) {
+  return (c) => {
+    var completer = PromiseWrapper.completer();
+    var res = (c.value == expectedValue) ? null : {"uniqLogin": true};
+    completer.resolve(res);
+    return completer.promise;
+  };
+}
+
+function loginIsEmptyGroupValidator(c: ControlGroup) {
+  return c.controls["login"].value == "" ? {"loginIsEmpty": true} : null;
+}
+
+@Directive({
+  selector: '[login-is-empty-validator]',
+  providers: [new Provider(NG_VALIDATORS, {useValue: loginIsEmptyGroupValidator, multi: true})]
+})
+class LoginIsEmptyValidator {
+}
+
+@Directive({
+  selector: '[uniq-login-validator]',
+  providers: [
+    new Provider(NG_ASYNC_VALIDATORS,
+                 {useExisting: forwardRef(() => UniqLoginValidator), multi: true})
+  ]
+})
+class UniqLoginValidator implements Validator {
+  @Input('uniq-login-validator') expected;
+
+  validate(c) { return uniqLoginAsyncValidator(this.expected)(c); }
+}
+
+@Component({
+  selector: "my-comp",
+  template: '',
+  directives: [
+    FORM_DIRECTIVES,
+    WrappedValue,
+    MyInput,
+    NgIf,
+    NgFor,
+    LoginIsEmptyValidator,
+    UniqLoginValidator
+  ]
+})
 class MyComp {
   form: any;
   name: string;

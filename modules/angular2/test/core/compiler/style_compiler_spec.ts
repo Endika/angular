@@ -74,8 +74,8 @@ export function main() {
             `a {color: green}@import ${IMPORT_REL_STYLESHEET_URL};`;
       });
 
-      function compile(styles: string[], styleAbsUrls: string[], encapsulation: ViewEncapsulation):
-          Promise<string[]> {
+      function compile(styles: string[], styleAbsUrls: string[],
+                       encapsulation: ViewEncapsulation): Promise<string[]> {
         // Note: Can't use MockXHR as the xhr is called recursively,
         // so we can't trigger flush.
         xhr.spy('get').andCallFake((url) => {
@@ -140,7 +140,7 @@ export function main() {
                  .then(styles => {
                    compareStyles(styles, [
                      'div[_ngcontent-app1-23] {\ncolor: red;\n}',
-                     'span[_ngcontent-app1-23] {\ncolor: blue;\n}'
+                     'span[_ngcontent-app1-23] {color: blue}'
                    ]);
                    async.done();
                  });
@@ -152,8 +152,8 @@ export function main() {
                  .then(styles => {
                    compareStyles(styles, [
                      'div[_ngcontent-app1-23] {\ncolor: red;\n}',
-                     'a[_ngcontent-app1-23] {\ncolor: green;\n}',
-                     'span[_ngcontent-app1-23] {\ncolor: blue;\n}'
+                     'a[_ngcontent-app1-23] {color: green}',
+                     'span[_ngcontent-app1-23] {color: blue}'
                    ]);
                    async.done();
                  });
@@ -203,8 +203,8 @@ export function main() {
     });
 
     describe('compileComponentCodeGen', () => {
-      function compile(styles: string[], styleAbsUrls: string[], encapsulation: ViewEncapsulation):
-          Promise<string[]> {
+      function compile(styles: string[], styleAbsUrls: string[],
+                       encapsulation: ViewEncapsulation): Promise<string[]> {
         var sourceExpression = compiler.compileComponentCodeGen(
             `'${appId}'`, `${templateId}`,
             new CompileTemplateMetadata(
@@ -260,7 +260,7 @@ export function main() {
              compile(['div {color: red}'], [IMPORT_ABS_STYLESHEET_URL], encapsulation)
                  .then(styles => {
                    compareStyles(styles, [
-                     'div[_ngcontent-app1-23] {\ncolor: red;\n}',
+                     'div[_ngcontent-app1-23] {color: red}',
                      'span[_ngcontent-app1-23] {\ncolor: blue;\n}'
                    ]);
                    async.done();
@@ -281,8 +281,7 @@ export function main() {
       it('should compile plain css rules', inject([AsyncTestCompleter], (async) => {
            compile('div {color: red;}')
                .then(stylesAndShimStyles => {
-                 var expected =
-                     [['div {color: red;}'], ['div[_ngcontent-%COMP%] {\ncolor: red;\n}']];
+                 var expected = [['div {color: red;}'], ['div[_ngcontent-%COMP%] {color: red;}']];
                  compareStyles(stylesAndShimStyles[0], expected[0]);
                  compareStyles(stylesAndShimStyles[1], expected[1]);
                  async.done();
@@ -296,7 +295,7 @@ export function main() {
                  var expected = [
                    ['div {color: red}', 'span {color: blue}'],
                    [
-                     'div[_ngcontent-%COMP%] {\ncolor: red;\n}',
+                     'div[_ngcontent-%COMP%] {color: red}',
                      'span[_ngcontent-%COMP%] {\ncolor: blue;\n}'
                    ]
                  ];

@@ -7,13 +7,14 @@ import {
 import {StringMapWrapper, ListWrapper} from 'angular2/src/core/facade/collection';
 import {isPresent, isBlank, CONST_EXPR} from 'angular2/src/core/facade/lang';
 import {Directive} from 'angular2/src/core/metadata';
-import {forwardRef, Provider} from 'angular2/src/core/di';
+import {forwardRef, Provider, Optional, Inject} from 'angular2/src/core/di';
 import {NgControl} from './ng_control';
 import {Form} from './form_interface';
 import {NgControlGroup} from './ng_control_group';
 import {ControlContainer} from './control_container';
 import {AbstractControl, ControlGroup, Control} from '../model';
-import {setUpControl} from './shared';
+import {setUpControl, setUpControlGroup, composeValidators, composeAsyncValidators} from './shared';
+import {Validators, NG_VALIDATORS, NG_ASYNC_VALIDATORS} from '../validators';
 
 const formDirectiveProvider =
     CONST_EXPR(new Provider(ControlContainer, {useExisting: forwardRef(() => NgForm)}));
@@ -87,8 +88,15 @@ const formDirectiveProvider =
   exportAs: 'form'
 })
 export class NgForm extends ControlContainer implements Form {
-  form: ControlGroup = new ControlGroup({});
+  form: ControlGroup;
   ngSubmit = new EventEmitter();
+
+  constructor(@Optional() @Inject(NG_VALIDATORS) validators: any[],
+              @Optional() @Inject(NG_ASYNC_VALIDATORS) asyncValidators: any[]) {
+    super();
+    this.form = new ControlGroup({}, null, composeValidators(validators),
+                                 composeAsyncValidators(asyncValidators));
+  }
 
   get formDirective(): Form { return this; }
 
@@ -99,42 +107,43 @@ export class NgForm extends ControlContainer implements Form {
   get controls(): {[key: string]: AbstractControl} { return this.form.controls; }
 
   addControl(dir: NgControl): void {
-    this._later(_ => {
+    PromiseWrapper.scheduleMicrotask(() => {
       var container = this._findContainer(dir.path);
       var ctrl = new Control();
       setUpControl(ctrl, dir);
       container.addControl(dir.name, ctrl);
-      ctrl.updateValidity();
+      ctrl.updateValueAndValidity({emitEvent: false});
     });
   }
 
   getControl(dir: NgControl): Control { return <Control>this.form.find(dir.path); }
 
   removeControl(dir: NgControl): void {
-    this._later(_ => {
+    PromiseWrapper.scheduleMicrotask(() => {
       var container = this._findContainer(dir.path);
       if (isPresent(container)) {
         container.removeControl(dir.name);
-        container.updateValidity();
+        container.updateValueAndValidity({emitEvent: false});
       }
     });
   }
 
   addControlGroup(dir: NgControlGroup): void {
-    this._later(_ => {
+    PromiseWrapper.scheduleMicrotask(() => {
       var container = this._findContainer(dir.path);
       var group = new ControlGroup({});
+      setUpControlGroup(group, dir);
       container.addControl(dir.name, group);
-      group.updateValidity();
+      group.updateValueAndValidity({emitEvent: false});
     });
   }
 
   removeControlGroup(dir: NgControlGroup): void {
-    this._later(_ => {
+    PromiseWrapper.scheduleMicrotask(() => {
       var container = this._findContainer(dir.path);
       if (isPresent(container)) {
         container.removeControl(dir.name);
-        container.updateValidity();
+        container.updateValueAndValidity({emitEvent: false});
       }
     });
   }
@@ -144,7 +153,7 @@ export class NgForm extends ControlContainer implements Form {
   }
 
   updateModel(dir: NgControl, value: any): void {
-    this._later(_ => {
+    PromiseWrapper.scheduleMicrotask(() => {
       var ctrl = <Control>this.form.find(dir.path);
       ctrl.updateValue(value);
     });
@@ -160,7 +169,4 @@ export class NgForm extends ControlContainer implements Form {
     path.pop();
     return ListWrapper.isEmpty(path) ? this.form : <ControlGroup>this.form.find(path);
   }
-
-  /** @internal */
-  _later(fn): void { PromiseWrapper.then(PromiseWrapper.resolve(null), fn, (_) => {}); }
 }

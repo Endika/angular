@@ -7,13 +7,11 @@ import {
   iit,
   SpyObject,
   el,
-  normalizeCSS,
-  browserDetection
+  normalizeCSS
 } from 'angular2/testing_internal';
-import {ShadowCss} from 'angular2/src/core/compiler/shadow_css';
+import {ShadowCss, processRules, CssRule} from 'angular2/src/core/compiler/shadow_css';
 
 import {RegExpWrapper, StringWrapper, isPresent} from 'angular2/src/core/facade/lang';
-import {DOM} from 'angular2/src/core/dom/dom_adapter';
 
 export function main() {
   describe('ShadowCss', function() {
@@ -35,7 +33,7 @@ export function main() {
 
     it('should handle invalid css', () => {
       var css = 'one {color: red;}garbage';
-      var expected = 'one[a] {color:red;}';
+      var expected = 'one[a] {color:red;}garbage';
       expect(s(css, 'a')).toEqual(expected);
     });
 
@@ -45,36 +43,35 @@ export function main() {
       expect(s(css, 'a')).toEqual(expected);
     });
 
+    it('should support newlines in the selector and content ', () => {
+      var css = 'one, \ntwo {\ncolor: red;}';
+      var expected = 'one[a], two[a] {color:red;}';
+      expect(s(css, 'a')).toEqual(expected);
+    });
+
     it('should handle media rules', () => {
-      var css = '@media screen and (max-width:800px) {div {font-size:50px;}}';
-      var expected = '@media screen and (max-width:800px) {div[a] {font-size:50px;}}';
+      var css = '@media screen and (max-width:800px, max-height:100%) {div {font-size:50px;}}';
+      var expected =
+          '@media screen and (max-width:800px, max-height:100%) {div[a] {font-size:50px;}}';
       expect(s(css, 'a')).toEqual(expected);
     });
 
     it('should handle media rules with simple rules', () => {
       var css = '@media screen and (max-width: 800px) {div {font-size: 50px;}} div {}';
-      var expected = '@media screen and (max-width:800px) {div[a] {font-size:50px;}}div[a] {}';
+      var expected = '@media screen and (max-width:800px) {div[a] {font-size:50px;}} div[a] {}';
       expect(s(css, 'a')).toEqual(expected);
     });
 
     // Check that the browser supports unprefixed CSS animation
-    if (DOM.supportsUnprefixedCssAnimation()) {
-      it('should handle keyframes rules', () => {
-        var css = '@keyframes foo {0% {transform: translate(-50%) scaleX(0);}}';
-        var passRe =
-            /@(-webkit-)*keyframes foo {\s*0% {\s*transform:translate\(-50%\) scaleX\(0\);\s*}\s*}/g;
-        expect(RegExpWrapper.test(passRe, s(css, 'a'))).toEqual(true);
-      });
-    }
+    it('should handle keyframes rules', () => {
+      var css = '@keyframes foo {0% {transform:translate(-50%) scaleX(0);}}';
+      expect(s(css, 'a')).toEqual(css);
+    });
 
-    if (browserDetection.isWebkit) {
-      it('should handle -webkit-keyframes rules', () => {
-        var css = '@-webkit-keyframes foo {0% {-webkit-transform: translate(-50%) scaleX(0);}}';
-        var passRe =
-            /@-webkit-keyframes foo {\s*0% {\s*(-webkit-)*transform:translate\(-50%\) scaleX\(0\);\s*}}/g;
-        expect(RegExpWrapper.test(passRe, s(css, 'a'))).toEqual(true);
-      });
-    }
+    it('should handle -webkit-keyframes rules', () => {
+      var css = '@-webkit-keyframes foo {0% {-webkit-transform:translate(-50%) scaleX(0);}}';
+      expect(s(css, 'a')).toEqual(css);
+    });
 
     it('should handle complicated selectors', () => {
       expect(s('one::before {}', 'a')).toEqual('one[a]::before {}');
@@ -110,10 +107,10 @@ export function main() {
 
     it('should support polyfill-next-selector', () => {
       var css = s("polyfill-next-selector {content: 'x > y'} z {}", 'a');
-      expect(css).toEqual('x[a] > y[a] {}');
+      expect(css).toEqual('x[a] > y[a]{}');
 
       css = s('polyfill-next-selector {content: "x > y"} z {}', 'a');
-      expect(css).toEqual('x[a] > y[a] {}');
+      expect(css).toEqual('x[a] > y[a]{}');
     });
 
     it('should support polyfill-unscoped-rule', () => {
@@ -134,10 +131,10 @@ export function main() {
 
     it('should support polyfill-rule', () => {
       var css = s("polyfill-rule {content: ':host.foo .bar';color: blue;}", 'a', 'a-host');
-      expect(css).toEqual('[a-host].foo .bar {color:blue;}');
+      expect(css).toEqual('[a-host].foo .bar {;color:blue;}');
 
       css = s('polyfill-rule {content: ":host.foo .bar";color:blue;}', 'a', 'a-host');
-      expect(css).toEqual('[a-host].foo .bar {color:blue;}');
+      expect(css).toEqual('[a-host].foo .bar {;color:blue;}');
     });
 
     it('should handle ::shadow', () => {
@@ -155,20 +152,75 @@ export function main() {
       expect(css).toEqual('x[a] y[a] {}');
     });
 
-    // TODO: can't work in Firefox, see https://bugzilla.mozilla.org/show_bug.cgi?id=625013
-    // Issue opened to track that: https://github.com/angular/angular/issues/4628
-    if (!browserDetection.isFirefox) {
-      it('should pass through @import directives', () => {
-        var styleStr = '@import url("https://fonts.googleapis.com/css?family=Roboto");';
-        var css = s(styleStr, 'a');
-        expect(css).toEqual(styleStr);
-      });
-    }
-
-    it('should leave calc() unchanged', () => {
-      var styleStr = 'a {height:calc(100% - 55px);}';
+    it('should pass through @import directives', () => {
+      var styleStr = '@import url("https://fonts.googleapis.com/css?family=Roboto");';
       var css = s(styleStr, 'a');
       expect(css).toEqual(styleStr);
+    });
+
+    it('should shim rules after @import', () => {
+      var styleStr = '@import url("a"); div {}';
+      var css = s(styleStr, 'a');
+      expect(css).toEqual('@import url("a"); div[a] {}');
+    });
+
+    it('should leave calc() unchanged', () => {
+      var styleStr = 'div {height:calc(100% - 55px);}';
+      var css = s(styleStr, 'a');
+      expect(css).toEqual('div[a] {height:calc(100% - 55px);}');
+    });
+
+    it('should strip comments', () => { expect(s('/* x */b {c}', 'a')).toEqual('b[a] {c}'); });
+
+    it('should ignore special characters in comments',
+       () => { expect(s('/* {;, */b {c}', 'a')).toEqual('b[a] {c}'); });
+
+    it('should support multiline comments',
+       () => { expect(s('/* \n */b {c}', 'a')).toEqual('b[a] {c}'); });
+  });
+
+  describe('processRules', () => {
+    describe('parse rules', () => {
+      function captureRules(input: string): CssRule[] {
+        var result = [];
+        processRules(input, (cssRule) => {
+          result.push(cssRule);
+          return cssRule;
+        });
+        return result;
+      }
+
+      it('should work with empty css', () => { expect(captureRules('')).toEqual([]); });
+
+      it('should capture a rule without body',
+         () => { expect(captureRules('a;')).toEqual([new CssRule('a', '')]); });
+
+      it('should capture css rules with body',
+         () => { expect(captureRules('a {b}')).toEqual([new CssRule('a', 'b')]); });
+
+      it('should capture css rules with nested rules', () => {
+        expect(captureRules('a {b {c}} d {e}'))
+            .toEqual([new CssRule('a', 'b {c}'), new CssRule('d', 'e')]);
+      });
+
+      it('should capture mutiple rules where some have no body', () => {
+        expect(captureRules('@import a ; b {c}'))
+            .toEqual([new CssRule('@import a', ''), new CssRule('b', 'c')]);
+      });
+    });
+
+    describe('modify rules', () => {
+      it('should allow to change the selector while preserving whitespaces', () => {
+        expect(processRules('@import a; b {c {d}} e {f}',
+                            (cssRule) => new CssRule(cssRule.selector + '2', cssRule.content)))
+            .toEqual('@import a2; b2 {c {d}} e2 {f}');
+      });
+
+      it('should allow to change the content', () => {
+        expect(processRules('a {b}',
+                            (cssRule) => new CssRule(cssRule.selector, cssRule.content + '2')))
+            .toEqual('a {b2}');
+      });
     });
   });
 }

@@ -1741,6 +1741,39 @@ export function main() {
                });
          }));
     });
+
+    if (DOM.supportsDOMEvents()) {
+      describe('svg', () => {
+        it('should support svg elements',
+           inject([TestComponentBuilder, AsyncTestCompleter], (tcb: TestComponentBuilder,
+                                                               async) => {
+             tcb.overrideView(MyComp,
+                              new ViewMetadata({template: '<svg><use xlink:href="Port" /></svg>'}))
+                 .createAsync(MyComp)
+                 .then((rootTC) => {
+                   var el = rootTC.debugElement.nativeElement;
+                   var svg = DOM.childNodes(el)[0];
+                   var use = DOM.childNodes(svg)[0];
+                   expect(DOM.getProperty(<Element>svg, 'namespaceURI'))
+                       .toEqual('http://www.w3.org/2000/svg');
+                   expect(DOM.getProperty(<Element>use, 'namespaceURI'))
+                       .toEqual('http://www.w3.org/2000/svg');
+
+                   if (!IS_DART) {
+                     var firstAttribute = DOM.getProperty(<Element>use, 'attributes')[0];
+                     expect(firstAttribute.name).toEqual('xlink:href');
+                     expect(firstAttribute.namespaceURI).toEqual('http://www.w3.org/1999/xlink');
+                   } else {
+                     // For Dart where '_Attr' has no instance getter 'namespaceURI'
+                     expect(DOM.getOuterHTML(<HTMLElement>use)).toContain('xmlns:xlink');
+                   }
+
+                   async.done();
+                 });
+           }));
+
+      });
+    }
   });
 }
 
@@ -1943,7 +1976,7 @@ class DoublePipe implements PipeTransform {
 @Injectable()
 class DirectiveEmitingEvent {
   msg: string;
-  event: EventEmitter;
+  event: EventEmitter<any>;
 
   constructor() {
     this.msg = '';
@@ -1969,7 +2002,7 @@ class DirectiveUpdatingHostProperties {
 @Directive({selector: '[update-host-actions]', host: {'@setAttr': 'setAttribute'}})
 @Injectable()
 class DirectiveUpdatingHostActions {
-  setAttr: EventEmitter;
+  setAttr: EventEmitter<any>;
 
   constructor() { this.setAttr = new EventEmitter(); }
 
@@ -2296,7 +2329,8 @@ class DirectiveThrowingAnError {
 
 @Component({
   selector: 'component-with-template',
-  directives: [NgFor], template: `No View Decorator: <div *ng-for="#item of items">{{item}}</div>`
+  directives: [NgFor],
+  template: `No View Decorator: <div *ng-for="#item of items">{{item}}</div>`
 })
 class ComponentWithTemplate {
   items = [1, 2, 3];

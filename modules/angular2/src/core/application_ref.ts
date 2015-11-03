@@ -6,7 +6,12 @@ import {
   APP_COMPONENT,
   APP_ID_RANDOM_PROVIDER
 } from './application_tokens';
-import {Promise, PromiseWrapper, PromiseCompleter} from 'angular2/src/core/facade/async';
+import {
+  Promise,
+  PromiseWrapper,
+  PromiseCompleter,
+  ObservableWrapper
+} from 'angular2/src/core/facade/async';
 import {ListWrapper} from 'angular2/src/core/facade/collection';
 import {Reflector, reflector} from 'angular2/src/core/reflection/reflection';
 import {TestabilityRegistry, Testability} from 'angular2/src/core/testability/testability';
@@ -22,7 +27,6 @@ import {
 } from 'angular2/src/core/facade/exceptions';
 import {DOM} from 'angular2/src/core/dom/dom_adapter';
 import {internalView} from 'angular2/src/core/linker/view_ref';
-import {LifeCycle, LifeCycle_} from 'angular2/src/core/life_cycle/life_cycle';
 import {
   IterableDiffers,
   defaultIterableDiffers,
@@ -42,6 +46,8 @@ import {Compiler} from 'angular2/src/core/linker/compiler';
 import {DynamicComponentLoader_} from "./linker/dynamic_component_loader";
 import {AppViewManager_} from "./linker/view_manager";
 import {Compiler_} from "./linker/compiler";
+import {wtfLeave, wtfCreateScope, WtfScopeFn} from './profile/profile';
+import {ChangeDetectorRef} from 'angular2/src/core/change_detection/change_detector_ref';
 
 /**
  * Constructs the set of providers meant for use at the platform level.
@@ -49,7 +55,7 @@ import {Compiler_} from "./linker/compiler";
  * These are providers that should be singletons shared among all Angular applications
  * running on the page.
  */
-export function platformBindings(): Array<Type | Provider | any[]> {
+export function platformProviders(): Array<Type | Provider | any[]> {
   return [provide(Reflector, {useValue: reflector}), TestabilityRegistry];
 }
 
@@ -62,7 +68,7 @@ function _componentProviders(appComponentType: Type): Array<Type | Provider | an
     provide(APP_COMPONENT_REF_PROMISE,
             {
               useFactory: (dynamicComponentLoader, injector: Injector) => {
-                // TODO(rado): investigate whether to support bindings on root component.
+                // TODO(rado): investigate whether to support providers on root component.
                 return dynamicComponentLoader.loadAsRoot(appComponentType, null, injector)
                     .then((componentRef) => {
                       if (isPresent(componentRef.location.nativeElement)) {
@@ -87,7 +93,7 @@ function _componentProviders(appComponentType: Type): Array<Type | Provider | an
  * Construct a default set of providers which should be included in any Angular
  * application, regardless of whether it runs on the UI thread or in a web worker.
  */
-export function applicationCommonBindings(): Array<Type | Provider | any[]> {
+export function applicationCommonProviders(): Array<Type | Provider | any[]> {
   return [
     provide(Compiler, {useClass: Compiler_}),
     APP_ID_RANDOM_PROVIDER,
@@ -103,12 +109,7 @@ export function applicationCommonBindings(): Array<Type | Provider | any[]> {
     provide(KeyValueDiffers, {useValue: defaultKeyValueDiffers}),
     DirectiveResolver,
     PipeResolver,
-    provide(DynamicComponentLoader, {useClass: DynamicComponentLoader_}),
-    provide(LifeCycle,
-            {
-              useFactory: (exceptionHandler) => new LifeCycle_(null, assertionsEnabled()),
-              deps: [ExceptionHandler]
-            })
+    provide(DynamicComponentLoader, {useClass: DynamicComponentLoader_})
   ];
 }
 
@@ -121,10 +122,10 @@ export function createNgZone(): NgZone {
 
 var _platform: PlatformRef;
 
-export function platformCommon(bindings?: Array<Type | Provider | any[]>, initializer?: () => void):
-    PlatformRef {
+export function platformCommon(providers?: Array<Type | Provider | any[]>,
+                               initializer?: () => void): PlatformRef {
   if (isPresent(_platform)) {
-    if (isBlank(bindings)) {
+    if (isBlank(providers)) {
       return _platform;
     }
     throw "platform() can only be called once per page";
@@ -134,10 +135,10 @@ export function platformCommon(bindings?: Array<Type | Provider | any[]>, initia
     initializer();
   }
 
-  if (isBlank(bindings)) {
-    bindings = platformBindings();
+  if (isBlank(providers)) {
+    providers = platformProviders();
   }
-  _platform = new PlatformRef_(Injector.resolveAndCreate(bindings), () => { _platform = null; });
+  _platform = new PlatformRef_(Injector.resolveAndCreate(providers), () => { _platform = null; });
   return _platform;
 }
 
@@ -170,7 +171,7 @@ export abstract class PlatformRef {
    * renderer, and other framework components. An application hosts one or more
    * root components, which can be initialized via `ApplicationRef.bootstrap()`.
    *
-   *##Application Bindings
+   *##Application Providers
    *
    * Angular applications require numerous providers to be properly instantiated.
    * When using `application()` to create a new app on the page, these providers
@@ -179,17 +180,17 @@ export abstract class PlatformRef {
    *
    * ### Example
    * ```
-   * var myAppBindings = [MyAppService];
+   * var myAppProviders = [MyAppService];
    *
    * platform()
-   *   .application([applicationCommonBindings(), applicationDomBindings(), myAppBindings])
+   *   .application([applicationCommonProviders(), applicationDomProviders(), myAppProviders])
    *   .bootstrap(MyTopLevelComponent);
    * ```
    *##See Also
    *
    * See the {@link bootstrap} documentation for more details.
    */
-  abstract application(bindings: Array<Type | Provider | any[]>): ApplicationRef;
+  abstract application(providers: Array<Type | Provider | any[]>): ApplicationRef;
 
   /**
    * Instantiate a new Angular application on the page, using providers which
@@ -203,8 +204,8 @@ export abstract class PlatformRef {
    * new application. Once this promise resolves, the application will be
    * constructed in the same manner as a normal `application()`.
    */
-  abstract asyncApplication(bindingFn: (zone: NgZone) => Promise<Array<Type | Provider | any[]>>):
-      Promise<ApplicationRef>;
+  abstract asyncApplication(bindingFn: (zone: NgZone) =>
+                                Promise<Array<Type | Provider | any[]>>): Promise<ApplicationRef>;
 
   /**
    * Destroy the Angular platform and all Angular applications on the page.
@@ -215,6 +216,7 @@ export abstract class PlatformRef {
 export class PlatformRef_ extends PlatformRef {
   /** @internal */
   _applications: ApplicationRef[] = [];
+  /** @internal */
   _disposeListeners: Function[] = [];
 
   constructor(private _injector: Injector, private _dispose: () => void) { super(); }
@@ -223,18 +225,18 @@ export class PlatformRef_ extends PlatformRef {
 
   get injector(): Injector { return this._injector; }
 
-  application(bindings: Array<Type | Provider | any[]>): ApplicationRef {
-    var app = this._initApp(createNgZone(), bindings);
+  application(providers: Array<Type | Provider | any[]>): ApplicationRef {
+    var app = this._initApp(createNgZone(), providers);
     return app;
   }
 
-  asyncApplication(bindingFn: (zone: NgZone) =>
-                       Promise<Array<Type | Provider | any[]>>): Promise<ApplicationRef> {
+  asyncApplication(bindingFn: (zone: NgZone) => Promise<Array<Type | Provider | any[]>>):
+      Promise<ApplicationRef> {
     var zone = createNgZone();
     var completer = PromiseWrapper.completer();
     zone.run(() => {
-      PromiseWrapper.then(bindingFn(zone), (bindings: Array<Type | Provider | any[]>) => {
-        completer.resolve(this._initApp(zone, bindings));
+      PromiseWrapper.then(bindingFn(zone), (providers: Array<Type | Provider | any[]>) => {
+        completer.resolve(this._initApp(zone, providers));
       });
     });
     return completer.promise;
@@ -301,21 +303,21 @@ export abstract class ApplicationRef {
    * specified application component onto DOM elements identified by the [componentType]'s
    * selector and kicks off automatic change detection to finish initializing the component.
    *
-   *##Optional Bindings
+   *##Optional Providers
    *
-   * Bindings for the given component can optionally be overridden via the `providers`
+   * Providers for the given component can optionally be overridden via the `providers`
    * parameter. These providers will only apply for the root component being added and any
    * child components under it.
    *
    * ### Example
    * ```
-   * var app = platform.application([applicationCommonBindings(), applicationDomBindings()];
+   * var app = platform.application([applicationCommonProviders(), applicationDomProviders()];
    * app.bootstrap(FirstRootComponent);
    * app.bootstrap(SecondRootComponent, [provide(OverrideBinding, {useClass: OverriddenBinding})]);
    * ```
    */
-  abstract bootstrap(componentType: Type, bindings?: Array<Type | Provider | any[]>):
-      Promise<ComponentRef>;
+  abstract bootstrap(componentType: Type,
+                     providers?: Array<Type | Provider | any[]>): Promise<ComponentRef>;
 
   /**
    * Retrieve the application {@link Injector}.
@@ -333,19 +335,49 @@ export abstract class ApplicationRef {
   abstract dispose(): void;
 
   /**
+   * Invoke this method to explicitly process change detection and its side-effects.
+   *
+   * In development mode, `tick()` also performs a second change detection cycle to ensure that no
+   * further changes are detected. If additional changes are picked up during this second cycle,
+   * bindings in the app have side-effects that cannot be resolved in a single change detection
+   * pass.
+   * In this case, Angular throws an error, since an Angular application can only have one change
+   * detection pass during which all change detection must complete.
+   */
+  abstract tick(): void;
+
+  /**
    * Get a list of component types registered to this application.
    */
   get componentTypes(): Type[] { return unimplemented(); };
 }
 
 export class ApplicationRef_ extends ApplicationRef {
+  /** @internal */
+  static _tickScope: WtfScopeFn = wtfCreateScope('ApplicationRef#tick()');
+
+  /** @internal */
   private _bootstrapListeners: Function[] = [];
+  /** @internal */
   private _disposeListeners: Function[] = [];
+  /** @internal */
   private _rootComponents: ComponentRef[] = [];
+  /** @internal */
   private _rootComponentTypes: Type[] = [];
+  /** @internal */
+  private _changeDetectorRefs: ChangeDetectorRef[] = [];
+  /** @internal */
+  private _runningTick: boolean = false;
+  /** @internal */
+  private _enforceNoNewChanges: boolean = false;
 
   constructor(private _platform: PlatformRef_, private _zone: NgZone, private _injector: Injector) {
     super();
+    if (isPresent(this._zone)) {
+      ObservableWrapper.subscribe(this._zone.onTurnDone,
+                                  (_) => { this._zone.run(() => { this.tick(); }); });
+    }
+    this._enforceNoNewChanges = assertionsEnabled();
   }
 
   registerBootstrapListener(listener: (ref: ComponentRef) => void): void {
@@ -353,6 +385,10 @@ export class ApplicationRef_ extends ApplicationRef {
   }
 
   registerDisposeListener(dispose: () => void): void { this._disposeListeners.push(dispose); }
+
+  registerChangeDetector(changeDetector: ChangeDetectorRef): void {
+    this._changeDetectorRefs.push(changeDetector);
+  }
 
   bootstrap(componentType: Type,
             providers?: Array<Type | Provider | any[]>): Promise<ComponentRef> {
@@ -369,9 +405,8 @@ export class ApplicationRef_ extends ApplicationRef {
         var compRefToken: Promise<ComponentRef> = injector.get(APP_COMPONENT_REF_PROMISE);
         var tick = (componentRef) => {
           var appChangeDetector = internalView(componentRef.hostView).changeDetector;
-          var lc = injector.get(LifeCycle);
-          lc.registerWith(this._zone, appChangeDetector);
-          lc.tick();
+          this._changeDetectorRefs.push(appChangeDetector.ref);
+          this.tick();
           completer.resolve(componentRef);
           this._rootComponents.push(componentRef);
           this._bootstrapListeners.forEach((listener) => listener(componentRef));
@@ -393,6 +428,24 @@ export class ApplicationRef_ extends ApplicationRef {
   get injector(): Injector { return this._injector; }
 
   get zone(): NgZone { return this._zone; }
+
+  tick(): void {
+    if (this._runningTick) {
+      throw new BaseException("ApplicationRef.tick is called recursively");
+    }
+
+    var s = ApplicationRef_._tickScope();
+    try {
+      this._runningTick = true;
+      this._changeDetectorRefs.forEach((detector) => detector.detectChanges());
+      if (this._enforceNoNewChanges) {
+        this._changeDetectorRefs.forEach((detector) => detector.checkNoChanges());
+      }
+    } finally {
+      this._runningTick = false;
+      wtfLeave(s);
+    }
+  }
 
   dispose(): void {
     // TODO(alxhub): Dispose of the NgZone.

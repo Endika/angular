@@ -10,7 +10,10 @@ import 'package:angular2/src/core/linker/interfaces.dart' show LifecycleHooks;
 import 'package:angular2/src/core/metadata/view.dart' show ViewEncapsulation;
 import 'package:angular2/src/transform/common/annotation_matcher.dart';
 import 'package:angular2/src/transform/common/interface_matcher.dart';
+import 'package:angular2/src/transform/common/logging.dart';
 import 'package:barback/barback.dart' show AssetId;
+
+import 'naive_eval.dart';
 
 class DirectiveMetadataReader {
   final _DirectiveMetadataVisitor _visitor;
@@ -53,22 +56,11 @@ class DirectiveMetadataReader {
   }
 }
 
-/// Visitor that attempts to evaluate a provided `node` syntactically.
-///
-/// This lack of semantic information means it cannot do much - for
-/// example, it can create a list from a list literal and combine adjacent
-/// strings but cannot determine that an identifier is a constant string,
-/// even if that identifier is defined in the same [CompilationUnit].
-///
-/// Returns the result of evaluation or [ConstantEvaluator.NOT_A_CONSTANT]
-/// where appropriate.
-final ConstantEvaluator _evaluator = new ConstantEvaluator();
-
 /// Evaluates the [Map] represented by `expression` and adds all `key`,
 /// `value` pairs to `map`. If `expression` does not evaluate to a [Map],
 /// throws a descriptive [FormatException].
 void _populateMap(Expression expression, Map map, String propertyName) {
-  var evaluated = expression.accept(_evaluator);
+  var evaluated = naiveEval(expression);
   if (evaluated is! Map) {
     throw new FormatException(
         'Angular 2 expects a Map but could not understand the value for '
@@ -87,7 +79,7 @@ void _populateMap(Expression expression, Map map, String propertyName) {
 /// descriptive [FormatException].
 void _populateList(
     Expression expression, List<String> list, String propertyName) {
-  var evaluated = expression.accept(_evaluator);
+  var evaluated = naiveEval(expression);
   if (evaluated is! List) {
     throw new FormatException(
         'Angular 2 expects a List but could not understand the value for '
@@ -100,7 +92,7 @@ void _populateList(
 /// Evaluates `node` and expects that the result will be a string. If not,
 /// throws a [FormatException].
 String _expressionToString(Expression node, String nodeDescription) {
-  var value = node.accept(_evaluator);
+  var value = naiveEval(node);
   if (value is! String) {
     throw new FormatException(
         'Angular 2 could not understand the value '
@@ -182,6 +174,21 @@ class _DirectiveMetadataVisitor extends Object
         template: _template);
   }
 
+  /// Ensures that we do not specify View values on an `@Component` annotation
+  /// when there is a @View annotation present.
+  void _validateTemplates() {
+    if (_cmpTemplate != null && _viewTemplate != null) {
+      var name = '(Unknown)';
+      if (_type != null && _type.name != null && _type.name.isNotEmpty) {
+        name = _type.name;
+      }
+      logger.warning(
+          'Cannot specify view parameters on @Component when a @View '
+          'is present. Component name: ${name}',
+          asset: _assetId);
+    }
+  }
+
   @override
   Object visitAnnotation(Annotation node) {
     var isComponent = _annotationMatcher.isComponent(node, _assetId);
@@ -196,14 +203,14 @@ class _DirectiveMetadataVisitor extends Object
       _isComponent = isComponent;
       _hasMetadata = true;
       if (isComponent) {
-        var t = new _CompileTemplateMetadataVisitor().visitAnnotation(node);
-        if (t.template != null || t.templateUrl != null) {
-          _cmpTemplate = t;
-        }
+        _cmpTemplate =
+            new _CompileTemplateMetadataVisitor().visitAnnotation(node);
+        _validateTemplates();
       }
       super.visitAnnotation(node);
     } else if (_annotationMatcher.isView(node, _assetId)) {
       if (_viewTemplate != null) {
+        // TODO(kegluneq): Support multiple views on a single class.
         throw new FormatException(
             'Only one View is allowed per class. '
             'Found unexpected "$node".',
@@ -211,10 +218,100 @@ class _DirectiveMetadataVisitor extends Object
       }
       _viewTemplate =
           new _CompileTemplateMetadataVisitor().visitAnnotation(node);
+      _validateTemplates();
     }
 
     // Annotation we do not recognize - no need to visit.
     return null;
+  }
+
+  @override
+  Object visitFieldDeclaration(FieldDeclaration node) {
+    for (var variable in node.fields.variables) {
+      for (var meta in node.metadata) {
+        if (_isAnnotation(meta, 'Output')) {
+          final renamed = _getRenamedValue(meta);
+          if (renamed != null) {
+            _outputs.add('${variable.name}: ${renamed}');
+          } else {
+            _outputs.add('${variable.name}');
+          }
+        }
+
+        if (_isAnnotation(meta, 'Input')) {
+          final renamed = _getRenamedValue(meta);
+          if (renamed != null) {
+            _inputs.add('${variable.name}: ${renamed}');
+          } else {
+            _inputs.add('${variable.name}');
+          }
+        }
+
+        if (_isAnnotation(meta, 'HostBinding')) {
+          final renamed = _getRenamedValue(meta);
+          if (renamed != null) {
+            _host['[${renamed}]'] = '${variable.name}';
+          } else {
+            _host['[${variable.name}]'] = '${variable.name}';
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  @override
+  Object visitMethodDeclaration(MethodDeclaration node) {
+    for (var meta in node.metadata) {
+      if (_isAnnotation(meta, 'HostListener')) {
+        if (meta.arguments.arguments.length == 0 || meta.arguments.arguments.length > 2) {
+          throw new ArgumentError(
+              'Incorrect value passed to HostListener. Expected 1 or 2.');
+        }
+
+        final eventName = _getHostListenerEventName(meta);
+        final params = _getHostListenerParams(meta);
+        _host['(${eventName})'] = '${node.name}($params)';
+      }
+    }
+    return null;
+  }
+
+  //TODO Use AnnotationMatcher instead of string matching
+  bool _isAnnotation(Annotation node, String annotationName) {
+    var id = node.name;
+    final name = id is PrefixedIdentifier ? '${id.identifier}' : '$id';
+    return name == annotationName;
+  }
+
+  String _getRenamedValue(Annotation node) {
+    if (node.arguments.arguments.length == 1) {
+      final renamed = naiveEval(node.arguments.arguments.single);
+      if (renamed is! String) {
+        throw new ArgumentError(
+            'Incorrect value. Expected a String, but got "${renamed}".');
+      }
+      return renamed;
+    } else {
+      return null;
+    }
+  }
+
+  String _getHostListenerEventName(Annotation node) {
+    final name = naiveEval(node.arguments.arguments.first);
+    if (name is! String) {
+      throw new ArgumentError(
+          'Incorrect event name. Expected a String, but got "${name}".');
+    }
+    return name;
+  }
+
+  String _getHostListenerParams(Annotation node) {
+    if (node.arguments.arguments.length == 2) {
+      return naiveEval(node.arguments.arguments[1]).join(',');
+    } else {
+      return "";
+    }
   }
 
   @override
@@ -229,6 +326,8 @@ class _DirectiveMetadataVisitor extends Object
       _lifecycleHooks = node.implementsClause != null
           ? node.implementsClause.accept(_lifecycleVisitor)
           : const [];
+
+      node.members.accept(this);
     }
     return null;
   }
@@ -362,15 +461,23 @@ class _LifecycleHookVisitor extends SimpleAstVisitor<List<LifecycleHooks>> {
 /// [CompileTemplateMetadata].
 class _CompileTemplateMetadataVisitor
     extends RecursiveAstVisitor<CompileTemplateMetadata> {
-  ViewEncapsulation _encapsulation = ViewEncapsulation.Emulated;
-  String _template = null;
-  String _templateUrl = null;
-  List<String> _styles = null;
-  List<String> _styleUrls = null;
+  ViewEncapsulation _encapsulation;
+  String _template;
+  String _templateUrl;
+  List<String> _styles;
+  List<String> _styleUrls;
 
   @override
   CompileTemplateMetadata visitAnnotation(Annotation node) {
     super.visitAnnotation(node);
+
+    if (_encapsulation == null &&
+        _template == null &&
+        _templateUrl == null &&
+        _styles == null &&
+        _styleUrls == null) {
+      return null;
+    }
 
     return new CompileTemplateMetadata(
         encapsulation: _encapsulation,

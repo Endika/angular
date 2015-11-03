@@ -29,7 +29,7 @@ import {
   platformCommon,
   PlatformRef,
   ApplicationRef,
-  applicationCommonBindings
+  applicationCommonProviders
 } from 'angular2/src/core/application_ref';
 import {Serializer} from "angular2/src/web_workers/shared/serializer";
 import {ON_WEB_WORKER} from "angular2/src/web_workers/shared/api";
@@ -56,7 +56,7 @@ import {compilerProviders} from 'angular2/src/core/compiler/compiler';
  * If no providers are specified, `platform`'s behavior depends on whether an existing
  * platform exists:
  *
- * If no platform exists, a new one will be created with the default {@link platformBindings}.
+ * If no platform exists, a new one will be created with the default {@link platformProviders}.
  *
  * If a platform already exists, it will be returned (regardless of what providers it
  * was created with). This is a convenience feature, allowing for multiple applications
@@ -91,8 +91,8 @@ class PrintLogger {
   logGroupEnd() {}
 }
 
-function webWorkerProviders(appComponentType, bus: MessageBus, initData: {[key: string]: any}):
-    Array<Type | Provider | any[]> {
+function webWorkerProviders(appComponentType, bus: MessageBus,
+                            initData: {[key: string]: any}): Array<Type | Provider | any[]> {
   return [
     compilerProviders(),
     Serializer,
@@ -114,9 +114,9 @@ function webWorkerProviders(appComponentType, bus: MessageBus, initData: {[key: 
   ];
 }
 
-export function bootstrapWebWorkerCommon(appComponentType: Type, bus: MessageBus,
-                                         appProviders: Array<Type | Provider | any[]> = null):
-    Promise<ComponentRef> {
+export function bootstrapWebWorkerCommon(
+    appComponentType: Type, bus: MessageBus,
+    appProviders: Array<Type | Provider | any[]> = null): Promise<ComponentRef> {
   var bootstrapProcess: PromiseCompleter<any> = PromiseWrapper.completer();
   var appPromise = platform().asyncApplication((zone: NgZone) => {
     // TODO(rado): prepopulate template cache, so applications with only
@@ -129,7 +129,7 @@ export function bootstrapWebWorkerCommon(appComponentType: Type, bus: MessageBus
     var emitter = bus.from(SETUP_CHANNEL);
     subscription = ObservableWrapper.subscribe(emitter, (message: {[key: string]: any}) => {
       var bindings =
-          [applicationCommonBindings(), webWorkerProviders(appComponentType, bus, message)];
+          [applicationCommonProviders(), webWorkerProviders(appComponentType, bus, message)];
       if (isPresent(appProviders)) {
         bindings.push(appProviders);
       }

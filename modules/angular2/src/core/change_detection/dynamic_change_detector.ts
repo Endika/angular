@@ -9,7 +9,7 @@ import {DirectiveRecord, DirectiveIndex} from './directive_record';
 import {Locals} from './parser/locals';
 import {ChangeDetectorGenConfig} from './interfaces';
 import {ChangeDetectionUtil, SimpleChange} from './change_detection_util';
-import {ChangeDetectionStrategy} from './constants';
+import {ChangeDetectionStrategy, ChangeDetectorState} from './constants';
 import {ProtoRecord, RecordType} from './proto_record';
 
 export class DynamicChangeDetector extends AbstractChangeDetector<any> {
@@ -134,7 +134,8 @@ export class DynamicChangeDetector extends AbstractChangeDetector<any> {
       if (proto.isLifeCycleRecord()) {
         if (proto.name === "DoCheck" && !throwOnChange) {
           this._getDirectiveFor(directiveRecord.directiveIndex).doCheck();
-        } else if (proto.name === "OnInit" && !throwOnChange && !this.alreadyChecked) {
+        } else if (proto.name === "OnInit" && !throwOnChange &&
+                   this.state == ChangeDetectorState.NeverChecked) {
           this._getDirectiveFor(directiveRecord.directiveIndex).onInit();
         } else if (proto.name === "OnChanges" && isPresent(changes) && !throwOnChange) {
           this._getDirectiveFor(directiveRecord.directiveIndex).onChanges(changes);
@@ -170,7 +171,7 @@ export class DynamicChangeDetector extends AbstractChangeDetector<any> {
     var dirs = this._directiveRecords;
     for (var i = dirs.length - 1; i >= 0; --i) {
       var dir = dirs[i];
-      if (dir.callAfterContentInit && !this.alreadyChecked) {
+      if (dir.callAfterContentInit && this.state == ChangeDetectorState.NeverChecked) {
         this._getDirectiveFor(dir.directiveIndex).afterContentInit();
       }
 
@@ -184,7 +185,7 @@ export class DynamicChangeDetector extends AbstractChangeDetector<any> {
     var dirs = this._directiveRecords;
     for (var i = dirs.length - 1; i >= 0; --i) {
       var dir = dirs[i];
-      if (dir.callAfterViewInit && !this.alreadyChecked) {
+      if (dir.callAfterViewInit && this.state == ChangeDetectorState.NeverChecked) {
         this._getDirectiveFor(dir.directiveIndex).afterViewInit();
       }
       if (dir.callAfterViewChecked) {
@@ -245,7 +246,7 @@ export class DynamicChangeDetector extends AbstractChangeDetector<any> {
 
     if (proto.shouldBeChecked()) {
       var prevValue = this._readSelf(proto, values);
-      if (!isSame(prevValue, currValue)) {
+      if (ChangeDetectionUtil.looseNotIdentical(prevValue, currValue)) {
         if (proto.lastInBinding) {
           var change = ChangeDetectionUtil.simpleChange(prevValue, currValue);
           if (throwOnChange) this.throwOnChangeError(prevValue, currValue);
@@ -348,7 +349,7 @@ export class DynamicChangeDetector extends AbstractChangeDetector<any> {
 
       if (proto.shouldBeChecked()) {
         var prevValue = this._readSelf(proto, values);
-        if (!isSame(prevValue, currValue)) {
+        if (ChangeDetectionUtil.looseNotIdentical(prevValue, currValue)) {
           currValue = ChangeDetectionUtil.unwrapValue(currValue);
 
           if (proto.lastInBinding) {
@@ -442,11 +443,4 @@ export class DynamicChangeDetector extends AbstractChangeDetector<any> {
     }
     return res;
   }
-}
-
-function isSame(a, b): boolean {
-  if (a === b) return true;
-  if (a instanceof String && b instanceof String && a == b) return true;
-  if ((a !== a) && (b !== b)) return true;
-  return false;
 }

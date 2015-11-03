@@ -43,12 +43,12 @@ var buildRouter = require('./modules/angular1_router/build');
 var uglify = require('gulp-uglify');
 var shouldLog = require('./tools/build/logging');
 var dartSdk = require('./tools/build/dart');
-var sauceConf = require('./sauce.conf');
+var browserProvidersConf = require('./browser-providers.conf.js');
 var os = require('os');
 
 require('./tools/check-environment')({
-  requiredNpmVersion: '>=2.14.5',
-  requiredNodeVersion: '>=4.1.1'
+  requiredNpmVersion: '>=2.14.7',
+  requiredNodeVersion: '>=4.2.1'
 });
 
 // Make it easy to quiet down portions of the build.
@@ -283,7 +283,7 @@ gulp.task('check-format', function() {
 gulp.task('enforce-format', function() {
   return doCheckFormat().on('warning', function(e) {
     console.log("ERROR: You forgot to run clang-format on your change.");
-    console.log("See https://github.com/angular/angular/blob/master/DEVELOPER.md#formatting");
+    console.log("See https://github.com/angular/angular/blob/master/DEVELOPER.md#clang-format");
     process.exit(1);
   });
 });
@@ -294,14 +294,16 @@ gulp.task('lint', ['build.tools'], function() {
   // https://github.com/palantir/tslint#supported-rules
   var tslintConfig = {
     "rules": {
-      "semicolon": true,
+      "requireInternalWithUnderscore": true,
+      "requireParameterType": true,
       "requireReturnType": true,
-      "requireParameterType": true
+      "semicolon": true,
+      "variable-name": [true, "ban-keywords"]
     }
   };
   return gulp.src(['modules/angular2/src/**/*.ts', '!modules/angular2/src/testing/**'])
       .pipe(tslint({
-        tslint: require('tslint'),
+        tslint: require('tslint').default,
         configuration: tslintConfig,
         rulesDirectory: 'dist/tools/tslint'
       }))
@@ -385,13 +387,13 @@ gulp.task('!proxyServeDart', proxyServeDart);
 gulp.task('serve.dart', function(done) {
   runSequence([
     '!proxyServeDart',
-    'serve/examples.dart',
+    'serve/playground.dart',
     'serve/benchmarks.dart',
     'serve/benchmarks_external.dart'
   ], done);
 });
 
-gulp.task('serve/examples.dart', pubserve(gulp, gulpPlugins, {
+gulp.task('serve/playground.dart', pubserve(gulp, gulpPlugins, {
   command: DART_SDK.PUB,
   path: CONFIG.dest.dart + '/playground',
   port: 8004
@@ -416,22 +418,6 @@ gulp.task('serve.e2e.dart', ['build.js.cjs'], function(neverDone) {
 });
 
 
-// --------------
-// d.ts generation
-var Dgeni = require('dgeni');
-
-gulp.task('docs/typings', [], function() {
-  try {
-    var dgeni = new Dgeni([require('./docs/typescript-definition-package')]);
-    return dgeni.generate();
-  } catch(x) {
-    console.log(x);
-    console.log(x.stack);
-    throw x;
-  }
-});
-
-
 // ------------------
 // CI tests suites
 
@@ -448,7 +434,7 @@ function runKarma(configFile, done) {
 
 gulp.task('test.js', function(done) {
   runSequence('test.unit.tools/ci', 'test.transpiler.unittest', 'test.unit.js/ci',
-              'test.unit.cjs/ci', 'test.typings', 'test.typings.npm', sequenceComplete(done));
+              'test.unit.cjs/ci', 'test.typings', sequenceComplete(done));
 });
 
 gulp.task('test.dart', function(done) {
@@ -477,17 +463,17 @@ function getBrowsersFromCLI() {
   for (var i = 0; i < inputList.length; i++) {
     var input = inputList[i];
     var karmaChromeLauncher = require('karma-chrome-launcher');
-    if (sauceConf.customLaunchers.hasOwnProperty(input) || karmaChromeLauncher.hasOwnProperty("launcher:" + input)) {
+    if (browserProvidersConf.customLaunchers.hasOwnProperty(input) || karmaChromeLauncher.hasOwnProperty("launcher:" + input)) {
       // In case of non-sauce browsers, or browsers defined in karma-chrome-launcher (Chrome, ChromeCanary and Dartium):
       // overrides everything, ignoring other options
       outputList = [input];
       isSauce = false;
       break;
-    } else if (sauceConf.customLaunchers.hasOwnProperty("SL_" + input.toUpperCase())) {
+    } else if (browserProvidersConf.customLaunchers.hasOwnProperty("SL_" + input.toUpperCase())) {
       isSauce = true;
       outputList.push("SL_" + input.toUpperCase());
-    } else if (sauceConf.aliases.hasOwnProperty(input.toUpperCase())) {
-      outputList = outputList.concat(sauceConf.aliases[input]);
+    } else if (browserProvidersConf.sauceAliases.hasOwnProperty(input.toUpperCase())) {
+      outputList = outputList.concat(browserProvidersConf.sauceAliases[input]);
       isSauce = true;
     } else {
       throw new Error('ERROR: unknown browser found in getBrowsersFromCLI()');
@@ -503,7 +489,7 @@ gulp.task('test.unit.js', ['build.js.dev'], function (done) {
   runSequence(
     '!test.unit.js/karma-server',
     function() {
-      watch('modules/**', [
+      watch('modules/**', { ignoreInitial: true }, [
         '!broccoli.js.dev',
         '!test.unit.js/karma-run'
       ]);
@@ -531,8 +517,16 @@ gulp.task('test.unit.js.sauce', ['build.js.dev'], function (done) {
   }
 });
 
-gulp.task('!test.unit.js/karma-server', function() {
-  new karma.Server({configFile: __dirname + '/karma-js.conf.js', reporters: 'dots'}).start();
+gulp.task('!test.unit.js/karma-server', function(done) {
+  var watchStarted = false;
+  var server = new karma.Server({configFile: __dirname + '/karma-js.conf.js', reporters: 'dots'});
+  server.on('run_complete', function () {
+    if (!watchStarted) {
+      watchStarted = true;
+      done();
+    }
+  });
+  server.start();
 });
 
 
@@ -667,9 +661,22 @@ gulp.task('test.unit.js.sauce/ci', function (done) {
         browserNoActivityTimeout: 240000,
         captureTimeout: 120000,
         reporters: ['dots', 'saucelabs'],
-        browsers: sauceConf.aliases.CI
+        browsers: browserProvidersConf.sauceAliases.CI
       },
       function(err) {done(); process.exit(err ? 1 : 0);}
+  ).start();
+});
+
+gulp.task('test.unit.js.browserstack/ci', function (done) {
+  new karma.Server({
+      configFile: __dirname + '/karma-js.conf.js',
+      singleRun: true,
+      browserNoActivityTimeout: 240000,
+      captureTimeout: 120000,
+      reporters: ['dots'],
+      browsers: browserProvidersConf.browserstackAliases.CI
+    },
+    function(err) {done(); process.exit(err ? 1 : 0);}
   ).start();
 });
 
@@ -784,62 +791,32 @@ gulp.task('pre-test-checks', function(done) {
 // feedback while allowing tests to execute.
 gulp.task('static-checks', ['!build.tools'], function(done) {
   runSequence(
-    ['enforce-format', 'lint', 'test.typings'],
+    // We do not run test.typings here because it requires building, which is too slow.
+    ['enforce-format', 'lint'],
     sequenceComplete(done));
 });
 
 
-gulp.task('!pre.test.typings', ['docs/typings'], function() {
-  return gulp
-    .src([
-      'modules/angular2/typings/**/*'], {
-        base: 'modules/angular2/typings/**'
-      }
-    )
-    .pipe(gulp.dest('dist/docs/typings/*'));
-});
-
 // -----------------
 // Tests for the typings we deliver for TS users
 //
-// There are currently two mechanisms for this.
-// The first is the legacy, bundled .d.ts file produced by dgeni.
-// This is tested by 'test.typings'.
-//
-// The second is individual .d.ts files produced by the compiler,
+// Typings are contained in individual .d.ts files produced by the compiler,
 // distributed in our npm package, and loaded from node_modules by
 // the typescript compiler.
-// This is tested by 'test.typings.npm'.
-//
-// During the transition, we support both packaging/delivery types.
-// TODO(alexeagle): remove the dgeni bundle when users have switched
-
-gulp.task('test.typings', ['!pre.test.typings'], function() {
-  return gulp.src(['typing_spec/*.ts', 'dist/docs/typings/angular2/*.d.ts',
-                   'dist/docs/typings/http.d.ts',
-                   'dist/docs/typings/es6-shim/es6-shim.d.ts',
-                   'dist/docs/typings/jasmine/jasmine.d.ts'])
-      .pipe(tsc({target: 'ES5', module: 'commonjs',
-                 experimentalDecorators: true,
-                 noImplicitAny: true,
-                 // Don't use the version of typescript that gulp-typescript depends on, we need 1.5
-                 // see https://github.com/ivogabe/gulp-typescript#typescript-version
-                 typescript: require('typescript')}));
-});
 
 // Make sure the two typings tests are isolated, by running this one in a tempdir
 var tmpdir = path.join(os.tmpdir(), 'test.typings',  new Date().getTime().toString());
-gulp.task('!pre.test.typings.layoutNodeModule', function() {
+gulp.task('!pre.test.typings.layoutNodeModule', ['build.js.cjs'], function() {
   return gulp
-    .src(['dist/js/cjs/angular2/**/*'], {base: 'dist/js/cjs'})
+    .src(['dist/js/cjs/angular2/**/*', 'node_modules/@reactivex/rxjs/dist/cjs/**'], {base: 'dist/js/cjs'})
     .pipe(gulp.dest(path.join(tmpdir, 'node_modules')));
 });
 gulp.task('!pre.test.typings.copyTypingsSpec', function() {
   return gulp
-    .src(['typing_spec/basic_spec.ts'], {base: 'typing_spec'})
+    .src(['typing_spec/*.ts'], {base: 'typing_spec'})
     .pipe(gulp.dest(path.join(tmpdir)));
 });
-gulp.task('test.typings.npm', [
+gulp.task('test.typings', [
   '!pre.test.typings.layoutNodeModule',
   '!pre.test.typings.copyTypingsSpec'
 ], function() {
@@ -847,6 +824,7 @@ gulp.task('test.typings.npm', [
     .pipe(tsc({target: 'ES5', module: 'commonjs',
       experimentalDecorators: true,
       noImplicitAny: true,
+      moduleResolution: 'node',
       typescript: require('typescript')}));
 });
 
@@ -1315,5 +1293,6 @@ process.on('beforeExit', function() {
 });
 
 
-gulp.on('task_stop', (e) => { analytics.build('gulp ' + e.task, e.duration*1000)});
-gulp.on('task_err', (e) => { analytics.build('gulp ' + e.task + ' (errored)', e.duration*1000)});
+gulp.on('task_start', (e) => { analytics.buildStart('gulp ' + e.task)});
+gulp.on('task_stop', (e) => { analytics.buildSuccess('gulp ' + e.task, e.duration*1000)});
+gulp.on('task_err', (e) => { analytics.buildError('gulp ' + e.task, e.duration*1000)});

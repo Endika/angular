@@ -7,9 +7,14 @@ import {
   expect,
   beforeEach,
   afterEach,
+  fakeAsync,
+  tick,
   el
 } from 'angular2/testing_internal';
 import {ControlGroup, Control, Validators, AbstractControl, ControlArray} from 'angular2/core';
+import {PromiseWrapper} from 'angular2/src/core/facade/promise';
+import {TimerWrapper} from 'angular2/src/core/facade/async';
+import {CONST_EXPR} from 'angular2/src/core/facade/lang';
 
 export function main() {
   function validator(key: string, error: any) {
@@ -65,8 +70,8 @@ export function main() {
     });
 
     describe("compose", () => {
-      it("should return a null validator when given null",
-         () => { expect(Validators.compose(null)).toBe(Validators.nullValidator); });
+      it("should return null when given null",
+         () => { expect(Validators.compose(null)).toBe(null); });
 
       it("should collect errors from all the validators", () => {
         var c = Validators.compose([validator("a", true), validator("b", true)]);
@@ -82,93 +87,61 @@ export function main() {
         var c = Validators.compose([Validators.nullValidator, Validators.nullValidator]);
         expect(c(new Control(""))).toEqual(null);
       });
-    });
 
-    describe("controlGroupValidator", () => {
-      it("should collect errors from the child controls", () => {
-        var one = new Control("one", validator("a", true));
-        var two = new Control("two", validator("b", true));
-        var g = new ControlGroup({"one": one, "two": two});
-
-        expect(Validators.group(g)).toEqual({"controls": {"one": {"a": true}, "two": {"b": true}}});
-      });
-
-      it("should not include controls that have no errors", () => {
-        var one = new Control("one", validator("a", true));
-        var two = new Control("two");
-        var g = new ControlGroup({"one": one, "two": two});
-
-        expect(Validators.group(g)).toEqual({"controls": {"one": {"a": true}}});
-      });
-
-      it("should return null when no errors", () => {
-        var g = new ControlGroup({"one": new Control("one")});
-
-        expect(Validators.group(g)).toEqual(null);
-      });
-
-      it("should return control errors mixed with group errors", () => {
-        var one = new Control("one", validator("a", true));
-        var g = new ControlGroup({"one": one}, null,
-                                 Validators.compose([validator("b", true), Validators.group]));
-
-        expect(g.validator(g)).toEqual({"b": true, "controls": {"one": {"a": true}}});
-      });
-
-      it("should return nested control group errors mixed with group errors", () => {
-        var one = new Control("one", validator("a", true));
-        var g = new ControlGroup({"one": one}, null,
-                                 Validators.compose([validator("b", true), Validators.group]));
-        var two = new Control("two", validator("c", true));
-        var gTwo = new ControlGroup({"two": two, "group": g});
-
-        expect(gTwo.validator(gTwo))
-            .toEqual({
-              "controls":
-                  {"two": {"c": true}, "group": {"b": true, "controls": {"one": {"a": true}}}}
-            });
+      it("should ignore nulls", () => {
+        var c = Validators.compose([null, Validators.required]);
+        expect(c(new Control(""))).toEqual({"required": true});
       });
     });
 
-    describe("controlArrayValidator", () => {
-      it("should collect errors from the child controls", () => {
-        var one = new Control("one", validator("a", true));
-        var two = new Control("two", validator("b", true));
-        var a = new ControlArray([one, two]);
+    describe("composeAsync", () => {
+      function asyncValidator(expected, response, timeout = 0) {
+        return (c) => {
+          var completer = PromiseWrapper.completer();
+          var res = c.value != expected ? response : null;
+          TimerWrapper.setTimeout(() => { completer.resolve(res); }, timeout);
+          return completer.promise;
+        };
+      }
 
-        expect(Validators.array(a)).toEqual({"controls": [{"a": true}, {"b": true}]});
-      });
+      it("should return null when given null",
+         () => { expect(Validators.composeAsync(null)).toEqual(null); });
 
-      it("should not include controls that have no errors", () => {
-        var one = new Control("one");
-        var two = new Control("two", validator("a", true));
-        var three = new Control("three");
-        var a = new ControlArray([one, two, three]);
+      it("should collect errors from all the validators", fakeAsync(() => {
+           var c = Validators.composeAsync([
+             asyncValidator("expected", {"one": true}),
+             asyncValidator("expected", {"two": true})
+           ]);
 
-        expect(Validators.array(a)).toEqual({"controls": [null, {"a": true}, null]});
-      });
+           var value = null;
+           c(new Control("invalid")).then(v => value = v);
 
-      it("should return null when no errors", () => {
-        var a = new ControlArray([new Control("one")]);
+           tick(1);
 
-        expect(Validators.array(a)).toEqual(null);
-      });
+           expect(value).toEqual({"one": true, "two": true});
+         }));
 
-      it("should return control errors mixed with group errors", () => {
-        var one = new Control("one", validator("a", true));
-        var a =
-            new ControlArray([one], Validators.compose([validator("b", true), Validators.array]));
+      it("should return null when no errors", fakeAsync(() => {
+           var c = Validators.composeAsync([asyncValidator("expected", {"one": true})]);
 
-        expect(a.validator(a)).toEqual({"b": true, "controls": [{"a": true}]});
-      });
+           var value = null;
+           c(new Control("expected")).then(v => value = v);
 
-      it("should return nested array errors ", () => {
-        var one = new Control("one", validator("a", true));
-        var a = new ControlArray([one]);
-        var a2 = new ControlArray([a]);
+           tick(1);
 
-        expect(Validators.array(a2)).toEqual({"controls": [{"controls": [{"a": true}]}]});
-      });
+           expect(value).toEqual(null);
+         }));
+
+      it("should ignore nulls", fakeAsync(() => {
+           var c = Validators.composeAsync([asyncValidator("expected", {"one": true}), null]);
+
+           var value = null;
+           c(new Control("invalid")).then(v => value = v);
+
+           tick(1);
+
+           expect(value).toEqual({"one": true});
+         }));
     });
   });
 }

@@ -1,6 +1,6 @@
 import {Map, MapWrapper, StringMapWrapper, ListWrapper} from 'angular2/src/core/facade/collection';
 import {unimplemented} from 'angular2/src/core/facade/exceptions';
-import {isPresent, isBlank, normalizeBlank, Type} from 'angular2/src/core/facade/lang';
+import {isPresent, isBlank, normalizeBlank, Type, CONST_EXPR} from 'angular2/src/core/facade/lang';
 import {Promise} from 'angular2/src/core/facade/async';
 
 import {PathRecognizer} from './path_recognizer';
@@ -40,6 +40,44 @@ export class RouteParams {
 
   get(param: string): string { return normalizeBlank(StringMapWrapper.get(this.params, param)); }
 }
+
+/**
+ * `RouteData` is an immutable map of additional data you can configure in your {@link Route}.
+ *
+ * You can inject `RouteData` into the constructor of a component to use it.
+ *
+ * ## Example
+ *
+ * ```
+ * import {bootstrap, Component, View} from 'angular2/angular2';
+ * import {Router, ROUTER_DIRECTIVES, routerBindings, RouteConfig} from 'angular2/router';
+ *
+ * @Component({...})
+ * @View({directives: [ROUTER_DIRECTIVES]})
+ * @RouteConfig([
+ *  {path: '/user/:id', component: UserCmp, as: 'UserCmp', data: {isAdmin: true}},
+ * ])
+ * class AppCmp {}
+ *
+ * @Component({...})
+ * @View({ template: 'user: {{isAdmin}}' })
+ * class UserCmp {
+ *   string: isAdmin;
+ *   constructor(data: RouteData) {
+ *     this.isAdmin = data.get('isAdmin');
+ *   }
+ * }
+ *
+ * bootstrap(AppCmp, routerBindings(AppCmp));
+ * ```
+ */
+export class RouteData {
+  constructor(public data: {[key: string]: any} = CONST_EXPR({})) {}
+
+  get(key: string): any { return normalizeBlank(StringMapWrapper.get(this.data, key)); }
+}
+
+var BLANK_ROUTE_DATA = new RouteData();
 
 /**
  * `Instruction` is a tree of {@link ComponentInstruction}s with all the information needed
@@ -99,13 +137,21 @@ export function stringifyInstruction(instruction: Instruction): string {
 
 export function stringifyInstructionPath(instruction: Instruction): string {
   return instruction.component.urlPath + stringifyAux(instruction) +
-         stringifyPrimary(instruction.child);
+         stringifyPrimaryPrefixed(instruction.child);
 }
 
 export function stringifyInstructionQuery(instruction: Instruction): string {
   return instruction.component.urlParams.length > 0 ?
              ('?' + instruction.component.urlParams.join('&')) :
              '';
+}
+
+function stringifyPrimaryPrefixed(instruction: Instruction): string {
+  var primary = stringifyPrimary(instruction);
+  if (primary.length > 0) {
+    primary = '/' + primary;
+  }
+  return primary;
 }
 
 function stringifyPrimary(instruction: Instruction): string {
@@ -115,8 +161,8 @@ function stringifyPrimary(instruction: Instruction): string {
   var params = instruction.component.urlParams.length > 0 ?
                    (';' + instruction.component.urlParams.join(';')) :
                    '';
-  return '/' + instruction.component.urlPath + params + stringifyAux(instruction) +
-         stringifyPrimary(instruction.child);
+  return instruction.component.urlPath + params + stringifyAux(instruction) +
+         stringifyPrimaryPrefixed(instruction.child);
 }
 
 function stringifyAux(instruction: Instruction): string {
@@ -176,23 +222,30 @@ export abstract class ComponentInstruction {
 
   /**
    * Returns the route data of the given route that was specified in the {@link RouteDefinition},
-   * or `null` if no route data was specified.
+   * or an empty object if no route data was specified.
    */
-  abstract routeData(): Object;
+  get routeData(): RouteData { return unimplemented(); };
 }
 
 export class ComponentInstruction_ extends ComponentInstruction {
+  private _routeData: RouteData;
+
   constructor(urlPath: string, urlParams: string[], private _recognizer: PathRecognizer,
               params: {[key: string]: any} = null) {
     super();
     this.urlPath = urlPath;
     this.urlParams = urlParams;
     this.params = params;
+    if (isPresent(this._recognizer.handler.data)) {
+      this._routeData = new RouteData(this._recognizer.handler.data);
+    } else {
+      this._routeData = BLANK_ROUTE_DATA;
+    }
   }
 
   get componentType() { return this._recognizer.handler.componentType; }
   resolveComponentType(): Promise<Type> { return this._recognizer.handler.resolveComponentType(); }
   get specificity() { return this._recognizer.specificity; }
   get terminal() { return this._recognizer.terminal; }
-  routeData(): Object { return this._recognizer.handler.data; }
+  get routeData(): RouteData { return this._routeData; }
 }

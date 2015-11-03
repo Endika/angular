@@ -7,9 +7,15 @@ import {Query, Directive} from 'angular2/src/core/metadata';
 import {forwardRef, Provider, Inject, Optional} from 'angular2/src/core/di';
 import {NgControl} from './ng_control';
 import {Control} from '../model';
-import {Validators, NG_VALIDATORS} from '../validators';
+import {Validators, NG_VALIDATORS, NG_ASYNC_VALIDATORS} from '../validators';
 import {ControlValueAccessor, NG_VALUE_ACCESSOR} from './control_value_accessor';
-import {setUpControl, isPropertyUpdated, selectValueAccessor} from './shared';
+import {
+  setUpControl,
+  composeValidators,
+  composeAsyncValidators,
+  isPropertyUpdated,
+  selectValueAccessor
+} from './shared';
 
 const formControlBinding =
     CONST_EXPR(new Provider(NgControl, {useExisting: forwardRef(() => NgFormControl)}));
@@ -73,19 +79,20 @@ export class NgFormControl extends NgControl implements OnChanges {
   update = new EventEmitter();
   model: any;
   viewModel: any;
-  validators: Function[];
 
-  constructor(@Optional() @Inject(NG_VALIDATORS) validators: Function[],
+  constructor(@Optional() @Inject(NG_VALIDATORS) private _validators:
+                  /* Array<Validator|Function> */ any[],
+              @Optional() @Inject(NG_ASYNC_VALIDATORS) private _asyncValidators:
+                  /* Array<Validator|Function> */ any[],
               @Optional() @Inject(NG_VALUE_ACCESSOR) valueAccessors: ControlValueAccessor[]) {
     super();
-    this.validators = validators;
     this.valueAccessor = selectValueAccessor(this, valueAccessors);
   }
 
   onChanges(changes: {[key: string]: SimpleChange}): void {
     if (this._isControlChanged(changes)) {
       setUpControl(this.form, this);
-      this.form.updateValidity();
+      this.form.updateValueAndValidity({emitEvent: false});
     }
     if (isPropertyUpdated(changes, this.viewModel)) {
       this.form.updateValue(this.model);
@@ -95,9 +102,11 @@ export class NgFormControl extends NgControl implements OnChanges {
 
   get path(): string[] { return []; }
 
-  get control(): Control { return this.form; }
+  get validator(): Function { return composeValidators(this._validators); }
 
-  get validator(): Function { return Validators.compose(this.validators); }
+  get asyncValidator(): Function { return composeAsyncValidators(this._asyncValidators); }
+
+  get control(): Control { return this.form; }
 
   viewToModelUpdate(newValue: any): void {
     this.viewModel = newValue;

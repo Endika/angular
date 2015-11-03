@@ -25,7 +25,7 @@ import {Pipe} from 'angular2/src/core/metadata';
  * ```
  */
 @CONST()
-@Pipe({name: 'json'})
+@Pipe({name: 'json', pure: false})
 @Injectable()
 export class JsonPipe implements PipeTransform {
   transform(value: any, args: any[] = null): string { return Json.stringify(value); }

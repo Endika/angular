@@ -97,6 +97,20 @@ export function main() {
        }));
 
 
+    it('should work in an app with aux routes', inject([AsyncTestCompleter], (async) => {
+         bootstrap(AuxAppCmp, testBindings)
+             .then((applicationRef) => {
+               var router = applicationRef.hostComponent.router;
+               router.subscribe((_) => {
+                 expect(el).toHaveText('root { hello } aside { hello }');
+                 expect(applicationRef.hostComponent.location.path()).toEqual('/hello(aside)');
+                 async.done();
+               });
+               router.navigateByUrl('/hello(aside)');
+             });
+       }));
+
+
     it('should work in an app with async components defined with "loader"',
        inject([AsyncTestCompleter], (async) => {
          bootstrap(ConciseAsyncAppCmp, testBindings)
@@ -156,14 +170,39 @@ export function main() {
        inject(
            [AsyncTestCompleter],
            (async) => {
+               bootstrap(BadAliasNameCmp, testBindings)
+                   .catch((e) => {
+                     expect(e.originalException)
+                         .toContainError(
+                             `Route "/child" with name "child" does not begin with an uppercase letter. Route names should be CamelCase like "Child".`);
+                     async.done();
+                     return null;
+                   })}));
+
+    it('should throw if a config has an invalid alias name with "as"',
+       inject(
+           [AsyncTestCompleter],
+           (async) => {
                bootstrap(BadAliasCmp, testBindings)
                    .catch((e) => {
                      expect(e.originalException)
                          .toContainError(
-                             `Route '/child' with alias 'child' does not begin with an uppercase letter. Route aliases should be CamelCase like 'Child'.`);
+                             `Route "/child" with name "child" does not begin with an uppercase letter. Route names should be CamelCase like "Child".`);
                      async.done();
                      return null;
                    })}));
+
+    it('should throw if a config has multiple alias properties "as" and "name"',
+       inject([AsyncTestCompleter],
+              (async) => {
+                  bootstrap(MultipleAliasCmp, testBindings)
+                      .catch((e) => {
+                        expect(e.originalException)
+                            .toContainError(
+                                `Route config should contain exactly one "as" or "name" property.`);
+                        async.done();
+                        return null;
+                      })}));
   });
 }
 
@@ -203,6 +242,13 @@ class ConciseAsyncAppCmp {
 }
 
 @Component({selector: 'app-cmp'})
+@View({template: `root { <router-outlet></router-outlet> } aside { <router-outlet name="aside"></router-outlet> }`, directives: ROUTER_DIRECTIVES})
+@RouteConfig([{path: '/hello', component: HelloCmp}, {aux: 'aside', component: HelloCmp}])
+class AuxAppCmp {
+  constructor(public router: Router, public location: LocationStrategy) {}
+}
+
+@Component({selector: 'app-cmp'})
 @View({template: `root { <router-outlet></router-outlet> }`, directives: ROUTER_DIRECTIVES})
 @RouteConfig([
   {path: '/hello', component: {type: 'constructor', constructor: HelloCmp}},
@@ -232,8 +278,20 @@ class WrongConfigCmp {
 
 @Component({selector: 'app-cmp'})
 @View({template: `root { <router-outlet></router-outlet> }`, directives: ROUTER_DIRECTIVES})
+@RouteConfig([{path: '/child', component: HelloCmp, name: 'child'}])
+class BadAliasNameCmp {
+}
+
+@Component({selector: 'app-cmp'})
+@View({template: `root { <router-outlet></router-outlet> }`, directives: ROUTER_DIRECTIVES})
 @RouteConfig([{path: '/child', component: HelloCmp, as: 'child'}])
 class BadAliasCmp {
+}
+
+@Component({selector: 'app-cmp'})
+@View({template: `root { <router-outlet></router-outlet> }`, directives: ROUTER_DIRECTIVES})
+@RouteConfig([{path: '/child', component: HelloCmp, as: 'Child', name: 'Child'}])
+class MultipleAliasCmp {
 }
 
 @Component({selector: 'app-cmp'})

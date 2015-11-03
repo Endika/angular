@@ -44,7 +44,7 @@ export abstract class ClientMessageBroker {
 
 export class ClientMessageBroker_ extends ClientMessageBroker {
   private _pending: Map<string, PromiseCompleter<any>> = new Map<string, PromiseCompleter<any>>();
-  private _sink: EventEmitter;
+  private _sink: EventEmitter<any>;
   /** @internal */
   public _serializer: Serializer;
 
@@ -142,6 +142,7 @@ class MessageData {
 
   /**
    * Returns the value from the StringMap if present. Otherwise returns null
+   * @internal
    */
   _getValueIfPresent(data: {[key: string]: any}, key: string) {
     if (StringMapWrapper.contains(data, key)) {

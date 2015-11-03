@@ -10,6 +10,7 @@ import 'package:angular2/src/transform/common/annotation_matcher.dart';
 import 'package:angular2/src/transform/common/code/ng_deps_code.dart';
 import 'package:angular2/src/transform/common/asset_reader.dart';
 import 'package:angular2/src/transform/common/logging.dart' as log;
+import 'package:angular2/src/transform/common/model/ng_deps_model.pb.dart';
 import 'package:angular2/src/transform/common/model/reflection_info_model.pb.dart';
 import 'package:angular2/src/transform/common/ng_meta.dart';
 import 'package:barback/barback.dart';
@@ -418,6 +419,145 @@ void allTests() {
       expect(ngMeta.types['HelloCmp'].template).toBeNotNull();
       expect(ngMeta.types['HelloCmp'].template.templateUrl)
           .toEqual('asset:other_package/lib/template.html');
+    });
+
+    it('should handle prefixed annotations', () async {
+      var model =
+          (await _testCreateModel('prefixed_annotations_files/soup.dart'))
+              .ngDeps;
+
+      expect(model.reflectables.isEmpty).toBeFalse();
+      final annotations = model.reflectables.first.annotations;
+      final viewAnnotation =
+          annotations.firstWhere((m) => m.isView, orElse: () => null);
+      final componentAnnotation =
+          annotations.firstWhere((m) => m.isComponent, orElse: () => null);
+      expect(viewAnnotation).toBeNotNull();
+      expect(viewAnnotation.namedParameters.first.name).toEqual('template');
+      expect(viewAnnotation.namedParameters.first.value).toContain('SoupView');
+      expect(componentAnnotation).toBeNotNull();
+      expect(componentAnnotation.namedParameters.first.name)
+          .toEqual('selector');
+      expect(componentAnnotation.namedParameters.first.value)
+          .toContain('[soup]');
+    });
+  });
+
+  describe('directives', () {
+    final reflectableNamed = (NgDepsModel model, String name) {
+      return model.reflectables
+          .firstWhere((r) => r.name == name, orElse: () => null);
+    };
+
+    it('should populate `directives` from @View value specified second.',
+        () async {
+      var model =
+          (await _testCreateModel('directives_files/components.dart')).ngDeps;
+      final componentFirst = reflectableNamed(model, 'ComponentFirst');
+      expect(componentFirst).toBeNotNull();
+      expect(componentFirst.directives).toBeNotNull();
+      expect(componentFirst.directives.length).toEqual(2);
+      expect(componentFirst.directives.first)
+          .toEqual(new PrefixedDirective()..name = 'Dep');
+      expect(componentFirst.directives[1]).toEqual(new PrefixedDirective()
+        ..name = 'Dep'
+        ..prefix = 'dep2');
+    });
+
+    it('should populate `directives` from @View value specified first.',
+        () async {
+      var model =
+          (await _testCreateModel('directives_files/components.dart')).ngDeps;
+      final viewFirst = reflectableNamed(model, 'ViewFirst');
+      expect(viewFirst).toBeNotNull();
+      expect(viewFirst.directives).toBeNotNull();
+      expect(viewFirst.directives.length).toEqual(2);
+      expect(viewFirst.directives.first).toEqual(new PrefixedDirective()
+        ..name = 'Dep'
+        ..prefix = 'dep2');
+      expect(viewFirst.directives[1])
+          .toEqual(new PrefixedDirective()..name = 'Dep');
+    });
+
+    it('should populate `directives` from @Component value with no @View.',
+        () async {
+      var model =
+          (await _testCreateModel('directives_files/components.dart')).ngDeps;
+      final componentOnly = reflectableNamed(model, 'ComponentOnly');
+      expect(componentOnly).toBeNotNull();
+      expect(componentOnly.directives).toBeNotNull();
+      expect(componentOnly.directives.length).toEqual(2);
+      expect(componentOnly.directives.first)
+          .toEqual(new PrefixedDirective()..name = 'Dep');
+      expect(componentOnly.directives[1]).toEqual(new PrefixedDirective()
+        ..name = 'Dep'
+        ..prefix = 'dep2');
+    });
+
+    it('should merge `outputs` from the annotation and fields.',
+        () async {
+      var model = await _testCreateModel('directives_files/components.dart');
+      expect(model.types['ComponentWithOutputs'].outputs).
+        toEqual({'a': 'a', 'b': 'b', 'c': 'renamed'});
+    });
+
+    it('should merge `inputs` from the annotation and fields.',
+        () async {
+      var model = await _testCreateModel('directives_files/components.dart');
+      expect(model.types['ComponentWithInputs'].inputs).
+        toEqual({'a': 'a', 'b': 'b', 'c': 'renamed'});
+    });
+
+    it('should merge host bindings from the annotation and fields.',
+        () async {
+      var model = await _testCreateModel('directives_files/components.dart');
+      expect(model.types['ComponentWithHostBindings'].hostProperties).
+        toEqual({'a': 'a', 'b': 'b', 'renamed': 'c'});
+    });
+
+    it('should merge host listeners from the annotation and fields.',
+        () async {
+      var model = await _testCreateModel('directives_files/components.dart');
+      expect(model.types['ComponentWithHostListeners'].hostListeners).
+        toEqual({'a': 'onA()', 'b': 'onB()', 'c': 'onC(\$event.target,\$event.target.value)'});
+    });
+
+    it('should warn if @Component has a `template` and @View is present.',
+        () async {
+      final logger = new RecordingLogger();
+      final model = await _testCreateModel('bad_directives_files/template.dart',
+          logger: logger);
+      var warning =
+          logger.logs.firstWhere((l) => l.contains('WARN'), orElse: () => null);
+      expect(warning).toBeNotNull();
+      expect(warning.toLowerCase())
+          .toContain('cannot specify view parameters on @component');
+    });
+
+    it('should warn if @Component has a `templateUrl` and @View is present.',
+        () async {
+      final logger = new RecordingLogger();
+      final model = await _testCreateModel(
+          'bad_directives_files/template_url.dart',
+          logger: logger);
+      var warning =
+          logger.logs.firstWhere((l) => l.contains('WARN'), orElse: () => null);
+      expect(warning).toBeNotNull();
+      expect(warning.toLowerCase())
+          .toContain('cannot specify view parameters on @component');
+    });
+
+    it('should warn if @Component has `directives` and @View is present.',
+        () async {
+      final logger = new RecordingLogger();
+      final model = await _testCreateModel(
+          'bad_directives_files/directives.dart',
+          logger: logger);
+      var warning =
+          logger.logs.firstWhere((l) => l.contains('WARN'), orElse: () => null);
+      expect(warning).toBeNotNull();
+      expect(warning.toLowerCase())
+          .toContain('cannot specify view parameters on @component');
     });
   });
 }

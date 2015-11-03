@@ -3,8 +3,6 @@ var parser = new parse5.Parser(parse5.TreeAdapters.htmlparser2);
 var serializer = new parse5.Serializer(parse5.TreeAdapters.htmlparser2);
 var treeAdapter = parser.treeAdapter;
 
-var cssParse = require('css/lib/parse/index');
-
 import {MapWrapper, ListWrapper, StringMapWrapper} from 'angular2/src/core/facade/collection';
 import {DomAdapter, setRootDomAdapter} from './dom_adapter';
 import {
@@ -276,6 +274,7 @@ export class Parse5DomAdapter extends DomAdapter {
   createElement(tagName): HTMLElement {
     return treeAdapter.createElement(tagName, 'http://www.w3.org/1999/xhtml', []);
   }
+  createElementNS(ns, tagName): HTMLElement { throw 'not implemented'; }
   createTextNode(text: string): Text {
     var t = <any>this.createComment(text);
     t.type = 'text';
@@ -435,6 +434,7 @@ export class Parse5DomAdapter extends DomAdapter {
       }
     }
   }
+  setAttributeNS(element, ns: string, attribute: string, value: string) { throw 'not implemented'; }
   removeAttribute(element, attribute: string) {
     if (attribute) {
       StringMapWrapper.delete(element.attribs, attribute);
@@ -472,18 +472,6 @@ export class Parse5DomAdapter extends DomAdapter {
   isShadowRoot(node): boolean { return this.getShadowRoot(node) == node; }
   importIntoDoc(node): any { return this.clone(node); }
   adoptNode(node): any { return node; }
-  isPageRule(rule): boolean {
-    return rule.type === 6;  // CSSRule.PAGE_RULE
-  }
-  isStyleRule(rule): boolean {
-    return rule.type === 1;  // CSSRule.MEDIA_RULE
-  }
-  isMediaRule(rule): boolean {
-    return rule.type === 4;  // CSSRule.MEDIA_RULE
-  }
-  isKeyframesRule(rule): boolean {
-    return rule.type === 7;  // CSSRule.KEYFRAMES_RULE
-  }
   getHref(el): string { return el.href; }
   resolveAndSetHref(el, baseUrl: string, href: string) {
     if (href == null) {
@@ -529,15 +517,6 @@ export class Parse5DomAdapter extends DomAdapter {
     }
     return rules;
   }
-  cssToRules(css: string): any[] {
-    css = css.replace(/url\(\'(.+)\'\)/g, 'url($1)');
-    var rules = [];
-    var parsedCSS = cssParse(css, {silent: true});
-    if (parsedCSS.stylesheet && parsedCSS.stylesheet.rules) {
-      rules = this._buildRules(parsedCSS.stylesheet.rules, css);
-    }
-    return rules;
-  }
   supportsDOMEvents(): boolean { return false; }
   supportsNativeShadowDOM(): boolean { return false; }
   getGlobalEventTarget(target: string): any {
@@ -548,12 +527,6 @@ export class Parse5DomAdapter extends DomAdapter {
     } else if (target == "body") {
       return this.defaultDoc().body;
     }
-  }
-  supportsUnprefixedCssAnimation(): boolean {
-    // Currently during offline code transformation we do not know
-    // what browsers we are targetting. To play it safe, we assume
-    // unprefixed animations are not supported.
-    return false;
   }
   getBaseHref(): string { throw 'not implemented'; }
   resetBaseElement(): void { throw 'not implemented'; }

@@ -11,7 +11,7 @@ import {
   NgIf
 } from 'angular2/core';
 import {ComponentRef_} from 'angular2/src/core/linker/dynamic_component_loader';
-import {LifeCycle} from 'angular2/src/core/life_cycle/life_cycle';
+import {ApplicationRef} from 'angular2/src/core/application_ref';
 import {reflector} from 'angular2/src/core/reflection/reflection';
 import {ReflectionCapabilities} from 'angular2/src/core/reflection/reflection_capabilities';
 import {DOM} from 'angular2/src/core/dom/dom_adapter';
@@ -43,7 +43,7 @@ export function main() {
   setupReflector();
 
   var app;
-  var lifeCycle;
+  var appRef;
   var baselineRootTreeComponent;
   var count = 0;
 
@@ -86,19 +86,19 @@ export function main() {
 
   function ng2DestroyDom() {
     app.initData = null;
-    lifeCycle.tick();
+    appRef.tick();
   }
 
   function ng2CreateDom() {
     app.initData = createData();
-    lifeCycle.tick();
+    appRef.tick();
   }
 
   function initNg2() {
     bootstrap(AppComponentWithStaticTree, createBindings())
         .then((ref) => {
           var injector = (<ComponentRef_>ref).injector;
-          lifeCycle = injector.get(LifeCycle);
+          appRef = injector.get(ApplicationRef);
 
           app = (<ComponentRef_>ref).hostComponent;
           bindAction('#ng2DestroyDom', ng2DestroyDom);
@@ -235,8 +235,7 @@ class StaticTreeComponent0 extends StaticTreeComponentBase {
 @Component({selector: 'tree', inputs: ['data']})
 @View({
   directives: [StaticTreeComponent0],
-  template:
-      `<span> {{data.value}} <tree [data]='data.right'></tree><tree [data]='data.left'></tree></span>`
+  template: `<span> {{data.value}} <tree [data]='data.right'></tree><tree [data]='data.left'></tree></span>`
 })
 class StaticTreeComponent1 extends StaticTreeComponentBase {
 }
@@ -244,8 +243,7 @@ class StaticTreeComponent1 extends StaticTreeComponentBase {
 @Component({selector: 'tree', inputs: ['data']})
 @View({
   directives: [StaticTreeComponent1],
-  template:
-      `<span> {{data.value}} <tree [data]='data.right'></tree><tree [data]='data.left'></tree></span>`
+  template: `<span> {{data.value}} <tree [data]='data.right'></tree><tree [data]='data.left'></tree></span>`
 })
 class StaticTreeComponent2 extends StaticTreeComponentBase {
   data: TreeNode;
@@ -254,8 +252,7 @@ class StaticTreeComponent2 extends StaticTreeComponentBase {
 @Component({selector: 'tree', inputs: ['data']})
 @View({
   directives: [StaticTreeComponent2],
-  template:
-      `<span> {{data.value}} <tree [data]='data.right'></tree><tree [data]='data.left'></tree></span>`
+  template: `<span> {{data.value}} <tree [data]='data.right'></tree><tree [data]='data.left'></tree></span>`
 })
 class StaticTreeComponent3 extends StaticTreeComponentBase {
 }
@@ -263,8 +260,7 @@ class StaticTreeComponent3 extends StaticTreeComponentBase {
 @Component({selector: 'tree', inputs: ['data']})
 @View({
   directives: [StaticTreeComponent3],
-  template:
-      `<span> {{data.value}} <tree [data]='data.right'></tree><tree [data]='data.left'></tree></span>`
+  template: `<span> {{data.value}} <tree [data]='data.right'></tree><tree [data]='data.left'></tree></span>`
 })
 class StaticTreeComponent4 extends StaticTreeComponentBase {
 }
@@ -272,8 +268,7 @@ class StaticTreeComponent4 extends StaticTreeComponentBase {
 @Component({selector: 'tree', inputs: ['data']})
 @View({
   directives: [StaticTreeComponent4],
-  template:
-      `<span> {{data.value}} <tree [data]='data.right'></tree><tree [data]='data.left'></tree></span>`
+  template: `<span> {{data.value}} <tree [data]='data.right'></tree><tree [data]='data.left'></tree></span>`
 })
 class StaticTreeComponent5 extends StaticTreeComponentBase {
 }
@@ -281,8 +276,7 @@ class StaticTreeComponent5 extends StaticTreeComponentBase {
 @Component({selector: 'tree', inputs: ['data']})
 @View({
   directives: [StaticTreeComponent5],
-  template:
-      `<span> {{data.value}} <tree [data]='data.right'></tree><tree [data]='data.left'></tree></span>`
+  template: `<span> {{data.value}} <tree [data]='data.right'></tree><tree [data]='data.left'></tree></span>`
 })
 class StaticTreeComponent6 extends StaticTreeComponentBase {
 }
@@ -290,8 +284,7 @@ class StaticTreeComponent6 extends StaticTreeComponentBase {
 @Component({selector: 'tree', inputs: ['data']})
 @View({
   directives: [StaticTreeComponent6],
-  template:
-      `<span> {{data.value}} <tree [data]='data.right'></tree><tree [data]='data.left'></tree></span>`
+  template: `<span> {{data.value}} <tree [data]='data.right'></tree><tree [data]='data.left'></tree></span>`
 })
 class StaticTreeComponent7 extends StaticTreeComponentBase {
 }
@@ -299,8 +292,7 @@ class StaticTreeComponent7 extends StaticTreeComponentBase {
 @Component({selector: 'tree', inputs: ['data']})
 @View({
   directives: [StaticTreeComponent7],
-  template:
-      `<span> {{data.value}} <tree [data]='data.right'></tree><tree [data]='data.left'></tree></span>`
+  template: `<span> {{data.value}} <tree [data]='data.right'></tree><tree [data]='data.left'></tree></span>`
 })
 class StaticTreeComponent8 extends StaticTreeComponentBase {
 }
@@ -308,8 +300,7 @@ class StaticTreeComponent8 extends StaticTreeComponentBase {
 @Component({selector: 'tree', inputs: ['data']})
 @View({
   directives: [StaticTreeComponent8],
-  template:
-      `<span> {{data.value}} <tree [data]='data.right'></tree><tree [data]='data.left'></tree></span>`
+  template: `<span> {{data.value}} <tree [data]='data.right'></tree><tree [data]='data.left'></tree></span>`
 })
 class StaticTreeComponent9 extends StaticTreeComponentBase {
 }

@@ -26,7 +26,7 @@ import {
 } from 'angular2/src/core/facade/async';
 
 import {RootRouter} from 'angular2/src/router/router';
-import {Router, RouterOutlet, RouterLink, RouteParams, ROUTE_DATA} from 'angular2/router';
+import {Router, RouterOutlet, RouterLink, RouteParams} from 'angular2/router';
 import {
   RouteConfig,
   Route,
@@ -51,7 +51,7 @@ import {DirectiveResolver} from 'angular2/src/core/linker/directive_resolver';
 
 var cmpInstanceCount;
 var log: string[];
-var eventBus: EventEmitter;
+var eventBus: EventEmitter<any>;
 var completer: PromiseCompleter<any>;
 
 export function main() {

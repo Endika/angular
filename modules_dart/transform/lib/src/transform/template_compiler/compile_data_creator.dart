@@ -3,54 +3,36 @@ library angular2.transform.template_compiler.compile_data_creator;
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:analyzer/analyzer.dart';
 import 'package:angular2/src/core/compiler/directive_metadata.dart';
 import 'package:angular2/src/core/compiler/template_compiler.dart';
 import 'package:angular2/src/transform/common/asset_reader.dart';
 import 'package:angular2/src/transform/common/logging.dart';
+import 'package:angular2/src/transform/common/model/ng_deps_model.pb.dart';
+import 'package:angular2/src/transform/common/model/reflection_info_model.pb.dart';
 import 'package:angular2/src/transform/common/names.dart';
-import 'package:angular2/src/transform/common/ng_deps.dart';
 import 'package:angular2/src/transform/common/ng_meta.dart';
+import 'package:angular2/src/transform/common/url_resolver.dart';
 import 'package:barback/barback.dart';
-import 'package:code_transformers/assets.dart';
 
 /// Creates [NormalizedComponentWithViewDirectives] objects for all `View`
-/// `Directive`s defined in `entryPoint`.
+/// `Directive`s defined in `assetId`.
 ///
-/// The returned value wraps the [NgDeps] at `entryPoint` as well as these
+/// The returned value wraps the [NgDepsModel] at `assetId` as well as these
 /// created objects.
 Future<CompileDataResults> createCompileData(
     AssetReader reader, AssetId assetId) async {
-  return logElapsedAsync(() {
-    return new _CompileDataCreator(reader, assetId).createCompileData();
+  return logElapsedAsync(() async {
+    final creator = await _CompileDataCreator.create(reader, assetId);
+    return creator != null ? creator.createCompileData() : null;
   }, operationName: 'createCompileData', assetId: assetId);
 }
 
 class CompileDataResults {
-  final NgDeps ngDeps;
-  final Map<RegisteredType,
+  final NgMeta ngMeta;
+  final Map<ReflectionInfoModel,
       NormalizedComponentWithViewDirectives> viewDefinitions;
-  final List<CompileDirectiveMetadata> directiveMetadatas;
 
-  CompileDataResults._(
-      this.ngDeps, this.viewDefinitions, this.directiveMetadatas);
-}
-
-// TODO(kegluenq): Improve this test.
-bool _isViewAnnotation(InstanceCreationExpression node) {
-  var constructorName = node.constructorName.type.name;
-  if (constructorName is PrefixedIdentifier) {
-    constructorName = constructorName.identifier;
-  }
-  return constructorName.name == 'View';
-}
-
-bool _isComponentAnnotation(InstanceCreationExpression node) {
-  var constructorName = node.constructorName.type.name;
-  if (constructorName is PrefixedIdentifier) {
-    constructorName = constructorName.identifier;
-  }
-  return constructorName.name == 'Component';
+  CompileDataResults._(this.ngMeta, this.viewDefinitions);
 }
 
 /// Creates [ViewDefinition] objects for all `View` `Directive`s defined in
@@ -58,65 +40,91 @@ bool _isComponentAnnotation(InstanceCreationExpression node) {
 class _CompileDataCreator {
   final AssetReader reader;
   final AssetId entryPoint;
-  final Future<NgDeps> ngDepsFuture;
-  final List<CompileDirectiveMetadata> directiveMetadatas = [];
+  final NgMeta ngMeta;
 
-  _CompileDataCreator(AssetReader reader, AssetId entryPoint)
-      : this.reader = reader,
-        this.entryPoint = entryPoint,
-        ngDepsFuture = NgDeps.parse(reader, entryPoint);
+  _CompileDataCreator(this.reader, this.entryPoint, this.ngMeta);
 
-  Future<CompileDataResults> createCompileData() async {
-    var ngDeps = await ngDepsFuture;
+  static Future<_CompileDataCreator> create(
+      AssetReader reader, AssetId assetId) async {
+    if (!(await reader.hasInput(assetId))) return null;
+    final json = await reader.readAsString(assetId);
+    if (json == null || json.isEmpty) return null;
 
-    var retVal = <RegisteredType, NormalizedComponentWithViewDirectives>{};
-    var visitor = new _DirectiveDependenciesVisitor(await _extractNgMeta());
-    ngDeps.registeredTypes.forEach((rType) {
-      visitor.reset();
-      rType.annotations.accept(visitor);
-      if (visitor.compileData != null) {
-        // Note: we use '' because the current file maps to the default prefix.
-        var ngMeta = visitor._metadataMap[''];
-        var typeName = '${rType.typeName}';
-
-        if (ngMeta.types.containsKey(typeName)) {
-          visitor.compileData.component = ngMeta.types[typeName];
-        } else {
-          logger.warning('Missing component "$typeName" in metadata map',
-              asset: entryPoint);
-        }
-        retVal[rType] = visitor.compileData;
-      }
-    });
-    return new CompileDataResults._(ngDeps, retVal, directiveMetadatas);
+    final ngMeta = new NgMeta.fromJson(JSON.decode(json));
+    return new _CompileDataCreator(reader, assetId, ngMeta);
   }
 
-  /// Creates a map from [AssetId] to import prefix for `.dart` libraries
-  /// imported by `entryPoint`, excluding any `.ng_deps.dart` files it imports.
-  /// Unprefixed imports have `null` as their value. `entryPoint` is included
-  /// in the map with no prefix.
-  Future<Map<AssetId, String>> _createImportAssetToPrefixMap() async {
-    var ngDeps = await ngDepsFuture;
+  NgDepsModel get ngDeps => ngMeta.ngDeps;
 
-    var importAssetToPrefix = <AssetId, String>{entryPoint: null};
+  Future<CompileDataResults> createCompileData() async {
+    if (ngDeps == null || ngDeps.reflectables == null) {
+      return new CompileDataResults._(ngMeta, const {});
+    }
 
-    for (ImportDirective node in ngDeps.imports) {
-      var uri = stringLiteralToString(node.uri);
-      if (uri.endsWith('.dart') && !uri.endsWith(DEPS_EXTENSION)) {
-        var prefix = node.prefix != null && node.prefix.name != null
-            ? '${node.prefix.name}'
-            : null;
-        importAssetToPrefix[uriToAssetId(
-            entryPoint, uri, logger, null /* span */,
-            errorOnAbsolute: false)] = prefix;
+    final compileData =
+        <ReflectionInfoModel, NormalizedComponentWithViewDirectives>{};
+    final ngMetaMap = await _extractNgMeta();
+
+    for (var reflectable in ngDeps.reflectables) {
+      if (ngMeta.types.containsKey(reflectable.name)) {
+        final compileDirectiveMetadata = ngMeta.types[reflectable.name];
+        if (compileDirectiveMetadata.template != null) {
+          final compileDatum = new NormalizedComponentWithViewDirectives(
+              compileDirectiveMetadata, <CompileDirectiveMetadata>[]);
+          for (var dep in reflectable.directives) {
+            if (!ngMetaMap.containsKey(dep.prefix)) {
+              logger.warning(
+                  'Missing prefix "${dep.prefix}" '
+                  'needed by "${dep}" from metadata map',
+                  asset: entryPoint);
+              continue;
+            }
+            final depNgMeta = ngMetaMap[dep.prefix];
+
+            if (depNgMeta.types.containsKey(dep.name)) {
+              compileDatum.directives.add(depNgMeta.types[dep.name]);
+            } else if (depNgMeta.aliases.containsKey(dep.name)) {
+              compileDatum.directives.addAll(depNgMeta.flatten(dep.name));
+            } else {
+              logger.warning('Could not find Directive entry for $dep. '
+                  'Please be aware that Dart transformers have limited support for '
+                  'reusable, pre-defined lists of Directives (aka '
+                  '"directive aliases"). See https://goo.gl/d8XPt0 for details.');
+            }
+          }
+          compileData[reflectable] = compileDatum;
+        }
       }
     }
-    return importAssetToPrefix;
+    return new CompileDataResults._(ngMeta, compileData);
+  }
+
+  /// Creates a map from import prefix to the asset: uris of all `.dart`
+  /// libraries visible from `entryPoint`, excluding `dart:` and `.ng_deps.dart`
+  /// files it imports. Unprefixed imports have the empty string as their key.
+  /// `entryPoint` is included in the map with no prefix.
+  Map<String, Iterable<String>> _createPrefixToImportsMap() {
+    final baseUri = toAssetUri(entryPoint);
+    final map = <String, Set<String>>{'': new Set<String>()..add(baseUri)};
+    if (ngDeps == null || ngDeps.imports == null || ngDeps.imports.isEmpty) {
+      return map;
+    }
+    final resolver = const TransformerUrlResolver();
+
+    ngMeta.ngDeps.imports
+        .where((model) => !model.isNgDeps && !isDartCoreUri(model.uri))
+        .forEach((model) {
+      var prefix = model.prefix == null ? '' : model.prefix;
+      map
+          .putIfAbsent(prefix, () => new Set<String>())
+          .add(resolver.resolve(baseUri, model.uri));
+    });
+    return map;
   }
 
   /// Reads the `.ng_meta.json` files associated with all of `entryPoint`'s
-  /// imports and creates a map `Type` name, prefixed if appropriate to the
-  /// associated [CompileDirectiveMetadata].
+  /// imports and creates a map of prefix (or blank) to the
+  /// associated [NgMeta] object.
   ///
   /// For example, if in `entryPoint` we have:
   ///
@@ -132,138 +140,38 @@ class _CompileDataCreator {
   /// ```
   ///
   /// This method will look for `component.ng_meta.json`to contain the
-  /// serialized [CompileDirectiveMetadata] for `MyComponent` and any other
+  /// serialized [NgMeta] for `MyComponent` and any other
   /// `Directive`s declared in `component.dart`. We use this information to
   /// build a map:
   ///
   /// ```
   /// {
-  ///   "prefix.MyComponent": [CompileDirectiveMetadata for MyComponent],
+  ///   "prefix": [NgMeta with CompileDirectiveMetadata for MyComponent],
   ///   ...<any other entries>...
   /// }
   /// ```
   Future<Map<String, NgMeta>> _extractNgMeta() async {
-    var importAssetToPrefix = await _createImportAssetToPrefixMap();
+    var prefixToImports = _createPrefixToImportsMap();
 
-    var retVal = <String, NgMeta>{};
-    for (var importAssetId in importAssetToPrefix.keys) {
-      var prefix = importAssetToPrefix[importAssetId];
-      if (prefix == null) prefix = '';
-      var ngMeta = retVal.putIfAbsent(prefix, () => new NgMeta.empty());
-      var metaAssetId = new AssetId(
-          importAssetId.package, toMetaExtension(importAssetId.path));
-      if (await reader.hasInput(metaAssetId)) {
-        try {
-          var jsonString = await reader.readAsString(metaAssetId);
-          if (jsonString != null && jsonString.isNotEmpty) {
-            var json = JSON.decode(jsonString);
-            var newMetadata = new NgMeta.fromJson(json);
-            if (importAssetId == entryPoint) {
-              this.directiveMetadatas.addAll(newMetadata.types.values);
+    final retVal = <String, NgMeta>{};
+    for (var prefix in prefixToImports.keys) {
+      var ngMeta = retVal[prefix] = new NgMeta.empty();
+      for (var importAssetUri in prefixToImports[prefix]) {
+        var metaAssetId = fromUri(toMetaExtension(importAssetUri));
+        if (await reader.hasInput(metaAssetId)) {
+          try {
+            var jsonString = await reader.readAsString(metaAssetId);
+            if (jsonString != null && jsonString.isNotEmpty) {
+              var newMetadata = new NgMeta.fromJson(JSON.decode(jsonString));
+              ngMeta.addAll(newMetadata);
             }
-            ngMeta.addAll(newMetadata);
+          } catch (ex, stackTrace) {
+            logger.warning('Failed to decode: $ex, $stackTrace',
+                asset: metaAssetId);
           }
-        } catch (ex, stackTrace) {
-          logger.warning('Failed to decode: $ex, $stackTrace',
-              asset: metaAssetId);
         }
       }
     }
     return retVal;
-  }
-}
-
-/// Visitor responsible for processing the `annotations` property of a
-/// [RegisterType] object, extracting the `directives` dependencies, and adding
-/// their associated [CompileDirectiveMetadata] to the `directives` of a
-/// created [NormalizedComponentWithViewDirectives] object.
-///
-/// The `component` property of the created
-/// [NormalizedComponentWithViewDirectives] will be null.
-///
-/// If no `View` annotation is found, `compileData` will be null.
-class _DirectiveDependenciesVisitor extends Object
-    with RecursiveAstVisitor<Object> {
-  NormalizedComponentWithViewDirectives compileData = null;
-  final Map<String, NgMeta> _metadataMap;
-
-  _DirectiveDependenciesVisitor(this._metadataMap);
-
-  void reset() {
-    compileData = null;
-  }
-
-  /// These correspond to the annotations themselves, which are converted into
-  /// const instance creation expressions so they can be stored in the
-  /// reflector.
-  @override
-  Object visitInstanceCreationExpression(InstanceCreationExpression node) {
-    if (_isViewAnnotation(node) || _isComponentAnnotation(node)) {
-      if (compileData == null) {
-        compileData = new NormalizedComponentWithViewDirectives(
-            null, <CompileDirectiveMetadata>[]);
-      } else {
-        // This is set above, after the visitor is finished. If this value is
-        // non-null it indicates that we forgot to call `reset()`.
-        assert(compileData.component == null);
-      }
-      node.visitChildren(this);
-    }
-    return null;
-  }
-
-  /// These correspond to the annotation parameters.
-  @override
-  Object visitNamedExpression(NamedExpression node) {
-    // TODO(kegluneq): Remove this limitation.
-    if (node.name is! Label || node.name.label is! SimpleIdentifier) {
-      logger.error(
-          'Angular 2 currently only supports simple identifiers in directives.'
-          ' Source: ${node}');
-      return null;
-    }
-    if ('${node.name.label}' == 'directives') {
-      _readDirectives(node.expression);
-    }
-    return null;
-  }
-
-  void _readDirectives(Expression node) {
-    // This could happen in a non-View annotation with a `directives`
-    // parameter.
-    if (compileData == null) return;
-
-    if (node is! ListLiteral) {
-      logger.error('Angular 2 currently only supports list literals as values '
-          'for "directives". Source: $node');
-      return;
-    }
-    var directiveList = (node as ListLiteral);
-    for (var node in directiveList.elements) {
-      var ngMeta;
-      var name;
-      if (node is SimpleIdentifier) {
-        ngMeta = _metadataMap[''];
-        name = node.name;
-      } else if (node is PrefixedIdentifier) {
-        ngMeta = _metadataMap[node.prefix.name];
-        name = node.identifier.name;
-      } else {
-        logger.error(
-            'Angular 2 currently only supports simple and prefixed identifiers '
-            'as values for "directives". Source: $node');
-        return;
-      }
-      if (ngMeta.types.containsKey(name)) {
-        compileData.directives.add(ngMeta.types[name]);
-      } else if (ngMeta.aliases.containsKey(name)) {
-        compileData.directives.addAll(ngMeta.flatten(name));
-      } else {
-        logger.warning('Could not find Directive entry for $node. '
-            'Please be aware that Dart transformers have limited support for '
-            'reusable, pre-defined lists of Directives (aka '
-            '"directive aliases"). See https://goo.gl/d8XPt0 for details.');
-      }
-    }
   }
 }

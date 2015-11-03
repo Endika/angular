@@ -59,7 +59,7 @@ export class Router {
   private _auxRouters = new Map<string, Router>();
   private _childRouter: Router;
 
-  private _subject: EventEmitter = new EventEmitter();
+  private _subject: EventEmitter<any> = new EventEmitter();
 
 
   constructor(public registry: RouteRegistry, public parent: Router, public hostComponent: any) {}
@@ -337,8 +337,11 @@ export class Router {
     }
 
     var promises = [];
-    this._auxRouters.forEach(
-        (router, name) => { promises.push(router.commit(instruction.auxInstruction[name])); });
+    this._auxRouters.forEach((router, name) => {
+      if (isPresent(instruction.auxInstruction[name])) {
+        promises.push(router.commit(instruction.auxInstruction[name]));
+      }
+    });
 
     return next.then((_) => PromiseWrapper.all(promises));
   }
@@ -478,6 +481,7 @@ export class Router {
 export class RootRouter extends Router {
   /** @internal */
   _location: Location;
+  /** @internal */
   _locationSub: Object;
 
   constructor(registry: RouteRegistry, location: Location, primaryComponent: Type) {
@@ -544,8 +548,8 @@ function splitAndFlattenLinkParams(linkParams: any[]): any[] {
   }, []);
 }
 
-function canActivateOne(nextInstruction: Instruction, prevInstruction: Instruction):
-    Promise<boolean> {
+function canActivateOne(nextInstruction: Instruction,
+                        prevInstruction: Instruction): Promise<boolean> {
   var next = _resolveToTrue;
   if (isPresent(nextInstruction.child)) {
     next = canActivateOne(nextInstruction.child,

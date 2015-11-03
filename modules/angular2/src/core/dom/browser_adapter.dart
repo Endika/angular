@@ -287,6 +287,11 @@ class BrowserDomAdapter extends GenericBrowserDomAdapter {
     return doc.createElement(tagName);
   }
 
+  Element createElementNS(String ns, String tagName, [HtmlDocument doc = null]) {
+    if (doc == null) doc = document;
+    return doc.createElementNS(ns, tagName);
+  }
+
   Text createTextNode(String text, [HtmlDocument doc = null]) {
     return new Text(text);
   }
@@ -341,7 +346,14 @@ class BrowserDomAdapter extends GenericBrowserDomAdapter {
   String tagName(Element element) => element.tagName;
 
   Map<String, String> attributeMap(Element element) {
-    return new Map.from(element.attributes);
+    var result = {};
+    result.addAll(element.attributes);
+    // TODO(tbosch): element.getNamespacedAttributes() somehow does not return the attribute value
+    var xlinkHref = element.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+    if (xlinkHref != null) {
+      result['xlink:href'] = xlinkHref;
+    }
+    return result;
   }
 
   bool hasAttribute(Element element, String attribute) =>
@@ -352,6 +364,10 @@ class BrowserDomAdapter extends GenericBrowserDomAdapter {
 
   void setAttribute(Element element, String name, String value) {
     element.setAttribute(name, value);
+  }
+
+  void setAttributeNS(Element element, String ns, String name, String value) {
+    element.setAttributeNS(ns, name, value);
   }
 
   void removeAttribute(Element element, String name) {
@@ -394,10 +410,6 @@ class BrowserDomAdapter extends GenericBrowserDomAdapter {
     return document.adoptNode(node);
   }
 
-  bool isPageRule(CssRule rule) => rule is CssPageRule;
-  bool isStyleRule(CssRule rule) => rule is CssStyleRule;
-  bool isMediaRule(CssRule rule) => rule is CssMediaRule;
-  bool isKeyframesRule(CssRule rule) => rule is CssKeyframesRule;
   String getHref(AnchorElement element) {
     return element.href;
   }

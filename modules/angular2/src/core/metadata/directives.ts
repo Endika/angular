@@ -198,7 +198,7 @@ import {ViewEncapsulation} from 'angular2/src/core/metadata/view';
  * ```
  *
  * This directive would be instantiated with a {@link QueryList} which contains `Dependency` 4 and
- * 6. Here, `Dependency` 5 would not be included, because it is not a direct child.
+ * `Dependency` 6. Here, `Dependency` 5 would not be included, because it is not a direct child.
  *
  * ### Injecting a live collection of descendant directives
  *
@@ -948,12 +948,14 @@ export class ComponentMetadata extends DirectiveMetadata {
 /**
  * Declare reusable pipe function.
  *
+ * A "pure" pipe is only re-evaluated when either the input or any of the arguments change.
+ *
+ * When not specified, pipes default to being pure.
+ *
  * ### Example
  *
  * ```
- * @Pipe({
- *   name: 'lowercase'
- * })
+ * @Pipe({name: 'lowercase'})
  * class Lowercase {
  *   transform(v, args) { return v.toLowerCase(); }
  * }
@@ -965,7 +967,7 @@ export class PipeMetadata extends InjectableMetadata {
   /** @internal */
   _pure: boolean;
 
-  constructor({name, pure}: {name: string, pure: boolean}) {
+  constructor({name, pure}: {name: string, pure?: boolean}) {
     super();
     this.name = name;
     this._pure = pure;

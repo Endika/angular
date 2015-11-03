@@ -1,18 +1,10 @@
 import {FORM_PROVIDERS} from 'angular2/src/core/forms';
-import {provide, Provider, Injector, OpaqueToken} from 'angular2/src/core/di';
-import {
-  NumberWrapper,
-  Type,
-  isBlank,
-  isPresent,
-  assertionsEnabled,
-  print,
-  stringify
-} from 'angular2/src/core/facade/lang';
+import {provide, Provider} from 'angular2/src/core/di';
+import {Type, isBlank, isPresent, stringify} from 'angular2/src/core/facade/lang';
 import {BrowserDomAdapter} from 'angular2/src/core/dom/browser_adapter';
 import {BrowserGetTestability} from 'angular2/src/core/testability/browser_testability';
 import {DOM} from 'angular2/src/core/dom/dom_adapter';
-import {Promise, PromiseWrapper, PromiseCompleter} from 'angular2/src/core/facade/async';
+import {Promise} from 'angular2/src/core/facade/async';
 import {XHR} from 'angular2/src/core/compiler/xhr';
 import {XHRImpl} from 'angular2/src/core/compiler/xhr_impl';
 
@@ -23,11 +15,8 @@ import {
 } from 'angular2/src/core/render/dom/events/event_manager';
 import {KeyEventsPlugin} from 'angular2/src/core/render/dom/events/key_events';
 import {HammerGesturesPlugin} from 'angular2/src/core/render/dom/events/hammer_gestures';
-import {
-  ComponentRef,
-  DynamicComponentLoader
-} from 'angular2/src/core/linker/dynamic_component_loader';
-import {TestabilityRegistry, Testability} from 'angular2/src/core/testability/testability';
+import {ComponentRef} from 'angular2/src/core/linker/dynamic_component_loader';
+import {Testability} from 'angular2/src/core/testability/testability';
 import {Renderer} from 'angular2/src/core/render/api';
 import {DomRenderer, DomRenderer_, DOCUMENT} from 'angular2/src/core/render/render';
 import {
@@ -38,13 +27,13 @@ import {EXCEPTION_PROVIDER} from './platform_bindings';
 import {AnimationBuilder} from 'angular2/src/animate/animation_builder';
 import {BrowserDetails} from 'angular2/src/animate/browser_details';
 import {wtfInit} from './profile/wtf_init';
-import {platformCommon, PlatformRef, applicationCommonBindings} from './application_ref';
+import {platformCommon, PlatformRef, applicationCommonProviders} from './application_ref';
 
 /**
  * A default set of providers which apply only to an Angular application running on
  * the UI thread.
  */
-export function applicationDomBindings(): Array<Type | Provider | any[]> {
+export function applicationDomProviders(): Array<Type | Provider | any[]> {
   if (isBlank(DOM)) {
     throw "Must set a root DOM adapter first.";
   }
@@ -77,7 +66,7 @@ export function applicationDomBindings(): Array<Type | Provider | any[]> {
  * If no providers are specified, `platform`'s behavior depends on whether an existing
  * platform exists:
  *
- * If no platform exists, a new one will be created with the default {@link platformBindings}.
+ * If no platform exists, a new one will be created with the default {@link platformProviders}.
  *
  * If a platform already exists, it will be returned (regardless of what providers it
  * was created with). This is a convenience feature, allowing for multiple applications
@@ -88,7 +77,7 @@ export function applicationDomBindings(): Array<Type | Provider | any[]> {
  * It is also possible to specify providers to be made in the new platform. These providers
  * will be shared between all applications on the page. For example, an abstraction for
  * the browser cookie jar should be bound at the platform level, because there is only one
- * cookie jar regardless of how many applications on the age will be accessing it.
+ * cookie jar regardless of how many applications on the page will be accessing it.
  *
  * If providers are specified directly, `platform` will create the Angular platform with
  * them if a platform did not exist already. If it did exist, however, an error will be
@@ -100,8 +89,8 @@ export function applicationDomBindings(): Array<Type | Provider | any[]> {
  * DOM access. Web-worker applications should call `platform` from
  * `src/web_workers/worker/application_common` instead.
  */
-export function platform(bindings?: Array<Type | Provider | any[]>): PlatformRef {
-  return platformCommon(bindings, () => {
+export function platform(providers?: Array<Type | Provider | any[]>): PlatformRef {
+  return platformCommon(providers, () => {
     BrowserDomAdapter.makeCurrent();
     wtfInit();
     BrowserGetTestability.init();
@@ -164,7 +153,7 @@ export function platform(bindings?: Array<Type | Provider | any[]>): PlatformRef
  *     `componentInjectableBindings` argument.
  *  3. It creates a new `Zone` and connects it to the angular application's change detection
  *     domain instance.
- *  4. It creates a shadow DOM on the selected component's host element and loads the
+ *  4. It creates an emulated or shadow DOM on the selected component's host element and loads the
  *     template into it.
  *  5. It instantiates the specified component.
  *  6. Finally, Angular performs change detection to apply the initial data providers for the
@@ -218,13 +207,13 @@ export function platform(bindings?: Array<Type | Provider | any[]>): PlatformRef
  *
  * Returns a `Promise` of {@link ComponentRef}.
  */
-export function commonBootstrap(appComponentType: /*Type*/ any,
-                                appBindings: Array<Type | Provider | any[]> = null):
-    Promise<ComponentRef> {
+export function commonBootstrap(
+    appComponentType: /*Type*/ any,
+    appProviders: Array<Type | Provider | any[]> = null): Promise<ComponentRef> {
   var p = platform();
-  var bindings = [applicationCommonBindings(), applicationDomBindings()];
-  if (isPresent(appBindings)) {
-    bindings.push(appBindings);
+  var bindings = [applicationCommonProviders(), applicationDomProviders()];
+  if (isPresent(appProviders)) {
+    bindings.push(appProviders);
   }
   return p.application(bindings).bootstrap(appComponentType);
 }

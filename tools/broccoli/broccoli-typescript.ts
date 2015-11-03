@@ -124,7 +124,7 @@ class DiffingTSCompiler implements DiffingBroccoliPlugin {
     allDiagnostics.forEach(diagnostic => {
       let message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
       if (diagnostic.file) {
-        let{line, character} = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
+        let {line, character} = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
         errors.push(`  ${diagnostic.file.fileName} (${line + 1},${character + 1}): ${message}`);
       } else {
         errors.push(`  Error: ${message}`);
@@ -230,6 +230,8 @@ class CustomLanguageServiceHost implements ts.LanguageServiceHost {
     } else if (this.compilerOptions.moduleResolution === ts.ModuleResolutionKind.NodeJs &&
                tsFilePath.match(/^node_modules/)) {
       absoluteTsFilePath = path.resolve(tsFilePath);
+    } else if (tsFilePath.match(/^@reactivex/)) {
+      absoluteTsFilePath = path.resolve('node_modules', tsFilePath);
     } else {
       absoluteTsFilePath = path.join(this.treeInputPath, tsFilePath);
     }
